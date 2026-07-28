@@ -1,0 +1,123 @@
+name: Docker Image CI
+
+on:
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+
+env:
+  IMAGE: jivandabeast/ticketarr
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Per-arch build jobs.
+  #
+  # Each matrix entry runs on a runner that natively speaks the target
+  # architecture (no QEMU emulation), builds one image for one platform,
+  # and pushes it "by digest" to DockerHub. The digest is exported as a
+  # per-arch artifact so the ``merge`` job can assemble a multi-arch
+  # manifest afterwards.
+  # ---------------------------------------------------------------------------
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            runs_on: ubuntu-latest
+          # native arm64 runner — no QEMU
+          - platform: linux/arm64
+            runs_on: ubuntu-24.04-arm
+
+    runs-on: ${{ matrix.runs_on }}
+
+    steps:
+      - name: Check out the repo
+        uses: actions/checkout@v5
+
+      - name: Sanitize platform for artifact paths
+        id: platform
+        run: |
+          pair="${{ matrix.platform }}"
+          echo "pair=${pair//\//-}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to DockerHub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push by digest
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: ${{ matrix.platform }}
+          push: true
+          provenance: false
+          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=ticketarr-${{ steps.platform.outputs.pair }}
+          cache-to: type=gha,scope=ticketarr-${{ steps.platform.outputs.pair }},mode=max
+
+      - name: Export digest
+        run: |
+          mkdir -p /tmp/digests
+          echo "${{ steps.build.outputs.digest }}" > "/tmp/digests/${{ steps.platform.outputs.pair }}"
+
+      - name: Upload digest artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: digests-${{ steps.platform.outputs.pair }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  # ---------------------------------------------------------------------------
+  # Merge job.
+  #
+  # Pulls every per-arch digest, then uses ``docker buildx imagetools
+  # create`` to stitch them into one multi-arch manifest. The final tags
+  # (:latest and :<git-sha>) are what end-users pull.
+  # ---------------------------------------------------------------------------
+  merge:
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download digest artifacts
+        uses: actions/download-artifact@v5
+        with:
+          path: /tmp/digests
+          pattern: digests-*
+          merge-multiple: true
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to DockerHub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Create and push manifest
+        working-directory: /tmp/digests
+        run: |
+          # Each file in /tmp/digests is a sha256:... digest for one platform.
+          # Combine them into a single multi-arch manifest tagged :latest and :<sha>.
+          refs=""
+          for f in *; do
+            digest="$(cat "$f")"
+            refs="$refs ${{ env.IMAGE }}@${digest}"
+          done
+          echo "Merging digests:$refs"
+          docker buildx imagetools create \
+            --tag "${{ env.IMAGE }}:latest" \
+            --tag "${{ env.IMAGE }}:${{ github.sha }}" \
+            $refs
+
+      - name: Inspect published image
+        run: docker buildx imagetools inspect "${{ env.IMAGE }}:latest"
