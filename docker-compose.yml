@@ -1,0 +1,16 @@
+services:
+  ticketarr:
+    build: .
+    image: ticketarr:latest
+    container_name: ticketarr
+    restart: unless-stopped
+    # Choose ONE of the two configuration styles:
+    #  1) mount a config.yml at /config/config.yml (see config.example.yml)
+    #  2) set environment variables (uncomment `env_file` below)
+    # env_file:
+    #   - .env
+    volumes:
+      - ./config:/config
+    ports:
+      # Local-only healthcheck endpoint. Not required to publish externally.
+      - "127.0.0.1:8765:8765"

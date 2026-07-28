@@ -1,0 +1,63 @@
+# ticketarr — sample configuration
+#
+# Copy this file to `config/config.yml` (mounted at /config/config.yml in the
+# container) and edit. Any value can also be provided via environment variables
+# (see README.md); env vars override the YAML values.
+
+imap:
+  host: imap.example.com
+  port: 993
+  username: you@example.com
+  password: "app-password-here"
+  mailbox: INBOX
+  ssl: true
+  # Leave empty to use the union of all registered parsers' senders
+  # (e.g. AMC today, Regal in the future). Uncomment to override.
+  # sender_filters:
+  #   - AMCTheatres@amctheatres.com
+  #   - no-reply@regmovies.com
+  initial_lookback_days: 7
+  poll_interval_seconds: 120
+  mark_seen: true
+
+tmdb:
+  # Either api_key or bearer_token is required.
+  api_key: your-tmdb-v3-api-key
+  # bearer_token: your-tmdb-v4-read-access-token
+
+# Which tracker to report watched movies to.
+# One of: none, trakt, ryot, yamtrack
+tracker:
+  provider: trakt
+
+# Optional: also send a "please add this" request for each reservation.
+# One of: none, seer, ombi
+requester:
+  provider: none
+
+trakt:
+  client_id: your-trakt-client-id
+  client_secret: your-trakt-client-secret
+  # Access/refresh tokens are populated automatically after the first device-flow login.
+  token_path: /config/trakt_token.json
+
+ryot:
+  base_url: http://ryot:8000
+  api_key: your-ryot-api-key
+
+yamtrack:
+  base_url: http://yamtrack:8000
+  webhook_token: your-per-user-webhook-token
+
+seer:
+  # Works for both Jellyseerr and Overseerr.
+  base_url: http://jellyseerr:5055
+  api_key: your-seer-api-key
+
+ombi:
+  base_url: http://ombi:3579
+  api_key: your-ombi-api-key
+  language_code: en
+
+state_path: /config/state.json
+healthcheck_port: 8765

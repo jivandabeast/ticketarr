@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ticketarr"
+version = "0.1.0"
+description = "Watch an inbox for AMC A-List emails and scrobble/request the movies to your services."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+authors = [{ name = "ticketarr contributors" }]
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "httpx>=0.27",
+    "pydantic>=2.7",
+    "PyYAML>=6.0",
+    "IMAPClient>=3.0",
+    "beautifulsoup4>=4.12",
+    "python-dateutil>=2.9",
+]
+
+[project.scripts]
+ticketarr = "ticketarr.__main__:main"
+
+[tool.setuptools.packages.find]
+include = ["ticketarr*"]

@@ -216,3 +216,9 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# ticketarr — local runtime state
+/config/
+!config.example.yml
+state.json
+trakt_token.json

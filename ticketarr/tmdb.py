@@ -1,0 +1,71 @@
+"""TMDB v3 client — just enough to search for a movie by title."""
+
+from __future__ import annotations
+
+import logging
+from dataclasses import dataclass
+from typing import Optional
+
+import httpx
+
+log = logging.getLogger(__name__)
+
+
+@dataclass
+class TMDBMovie:
+    tmdb_id: int
+    title: str
+    release_date: Optional[str]  # YYYY-MM-DD
+
+
+class TMDBClient:
+    BASE = "https://api.themoviedb.org/3"
+
+    def __init__(self, *, api_key: Optional[str] = None, bearer_token: Optional[str] = None) -> None:
+        if not api_key and not bearer_token:
+            raise ValueError("TMDBClient requires api_key or bearer_token")
+        headers = {"Accept": "application/json"}
+        params: dict[str, str] = {}
+        if bearer_token:
+            headers["Authorization"] = f"Bearer {bearer_token}"
+        elif api_key:
+            params["api_key"] = api_key
+        self._client = httpx.AsyncClient(
+            base_url=self.BASE,
+            headers=headers,
+            params=params,
+            timeout=httpx.Timeout(15.0),
+        )
+
+    async def aclose(self) -> None:
+        await self._client.aclose()
+
+    async def search_movie(self, title: str, year: Optional[int] = None) -> Optional[TMDBMovie]:
+        params: dict[str, str] = {"query": title, "include_adult": "false"}
+        if year is not None:
+            params["primary_release_year"] = str(year)
+        try:
+            resp = await self._client.get("/search/movie", params=params)
+            resp.raise_for_status()
+        except httpx.HTTPError as exc:
+            log.warning("TMDB search failed for %r: %s", title, exc)
+            return None
+        results = resp.json().get("results") or []
+        if not results:
+            # Retry without the year filter — AMC titles sometimes have quirks.
+            if year is not None:
+                return await self.search_movie(title, None)
+            log.info("TMDB: no results for %r", title)
+            return None
+
+        # Prefer exact title match (case-insensitive), else the first result.
+        normalized = title.strip().lower()
+        best = next(
+            (r for r in results if (r.get("title") or "").strip().lower() == normalized),
+            results[0],
+        )
+        return TMDBMovie(
+            tmdb_id=int(best["id"]),
+            title=best.get("title") or title,
+            release_date=best.get("release_date") or None,
+        )
