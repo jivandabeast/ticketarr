@@ -40,7 +40,7 @@ cp .env.example .env
 $EDITOR .env
 # then uncomment `env_file: - .env` in docker-compose.yml
 
-docker compose up -d --build
+docker compose up -d
 docker compose logs -f ticketarr
 ```
 
@@ -65,6 +65,33 @@ See [`config.example.yml`](./config.example.yml) and
 - **TMDB** API key (v3) or bearer token (v4 read access token)
 - One of the tracker providers (`trakt`, `ryot`, `yamtrack`) — or `none` if
   you only want to submit requests
+
+### Filtering senders
+
+By default ticketarr polls for messages from every registered parser's
+canonical From-addresses (currently just `AMCTheatres@amctheatres.com`;
+Regal Unlimited coming later). If you want to poll a different / additional
+set of senders — for example, a friend who forwards you tickets, or a
+SimpleLogin / 33mail alias — set an explicit list.
+
+YAML (`imap.sender_filters` in `config.yml`):
+
+```yaml
+imap:
+  sender_filters:
+    - AMCTheatres@amctheatres.com
+    - friend@gmail.com
+```
+
+Environment variable (`IMAP_SENDER_FILTERS`, comma-separated):
+
+```bash
+IMAP_SENDER_FILTERS="AMCTheatres@amctheatres.com,friend@gmail.com"
+```
+
+Setting this explicitly **replaces** the default list — include every
+sender you want, not just the extras. Whitespace around commas is
+trimmed. An empty value means "fall back to the registered defaults".
 
 ### Trakt bootstrap
 

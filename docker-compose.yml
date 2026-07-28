@@ -1,7 +1,9 @@
 services:
   ticketarr:
-    build: .
-    image: ticketarr:latest
+    image: jivandabeast/ticketarr:latest
+    # Uncomment `build` to build from local source instead of pulling
+    # the published image (useful when hacking on the code):
+    # build: .
     container_name: ticketarr
     restart: unless-stopped
     # Choose ONE of the two configuration styles:
