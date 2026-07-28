@@ -3,7 +3,7 @@
 A tiny, headless Python service that watches an email inbox for AMC A-List
 reservation / cancellation emails and mirrors them to your movie tracker
 (Trakt, Ryot, or Yamtrack). Optionally submits a request for the same movie to
-Jellyseerr/Overseerr ("Seer") or Ombi.
+Jellyseerr/Overseerr ("Seerr") or Ombi.
 
 Support for additional theater chains (e.g. Regal Unlimited) is designed to
 drop in as a single new parser module — see
@@ -86,7 +86,7 @@ and reused on subsequent runs.
 | Trakt.tv               | OAuth (device flow), needs client id + secret | Full watched/unwatched support with showtime timestamp                                                                       |
 | Ryot                   | Long-lived API token                          | GraphQL against `/backend/graphql`; scrobbles via `deployBulkMetadataProgressUpdate`                                         |
 | Yamtrack               | Per-user webhook token                        | Uses Jellyfin-style `POST /webhook/jellyfin/<token>`. Watched-at is set server-side (Yamtrack limitation) — cannot backdate. |
-| Jellyseerr / Overseerr | `X-Api-Key` header                            | `POST /api/v1/request` with `{"mediaType":"movie","mediaId":<tmdb>}`                                                         |
+| Jellyseerr / Overseerr | `X-Api-Key` header                            | `POST /api/v1/request` with `{"mediaType":"movie","mediaId":<tmdb>, "is4k": <bool>}` (opt-in via `seerr.request_4k`)         |
 | Ombi                   | `ApiKey` header                               | Prefers `POST /api/v2/Requests/movie`; falls back to `/api/v1/Request/movie`                                                 |
 
 ## Repository layout
@@ -109,7 +109,7 @@ ticketarr/                    Python package
        ├─ trakt.py
        ├─ ryot.py
        ├─ yamtrack.py
-       ├─ seer.py
+       ├─ seerr.py
        └─ ombi.py
 Dockerfile
 docker-compose.yml

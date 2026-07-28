@@ -31,7 +31,7 @@ tracker:
   provider: trakt
 
 # Optional: also send a "please add this" request for each reservation.
-# One of: none, seer, ombi
+# One of: none, seerr, ombi
 requester:
   provider: none
 
@@ -49,10 +49,12 @@ yamtrack:
   base_url: http://yamtrack:8000
   webhook_token: your-per-user-webhook-token
 
-seer:
+seerr:
   # Works for both Jellyseerr and Overseerr.
   base_url: http://jellyseerr:5055
-  api_key: your-seer-api-key
+  api_key: your-seerr-api-key
+  # Set to true to file 4K requests instead of standard-quality.
+  request_4k: false
 
 ombi:
   base_url: http://ombi:3579

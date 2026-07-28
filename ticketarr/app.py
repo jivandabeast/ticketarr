@@ -56,12 +56,16 @@ def _build_tracker(cfg: Config) -> Optional[Tracker]:
 
 def _build_requester(cfg: Config) -> Optional[Requester]:
     provider = cfg.requester.provider
-    if provider == "seer":
-        from .integrations.seer import SeerClient
+    if provider == "seerr":
+        from .integrations.seerr import SeerrClient
 
-        if not (cfg.seer.base_url and cfg.seer.api_key):
-            raise RuntimeError("Seer selected but base_url/api_key missing")
-        return SeerClient(base_url=cfg.seer.base_url, api_key=cfg.seer.api_key)
+        if not (cfg.seerr.base_url and cfg.seerr.api_key):
+            raise RuntimeError("Seerr selected but base_url/api_key missing")
+        return SeerrClient(
+            base_url=cfg.seerr.base_url,
+            api_key=cfg.seerr.api_key,
+            request_4k=cfg.seerr.request_4k,
+        )
     if provider == "ombi":
         from .integrations.ombi import OmbiClient
 

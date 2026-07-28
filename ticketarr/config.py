@@ -82,11 +82,12 @@ class YamtrackConfig(BaseModel):
     webhook_token: Optional[str] = None
 
 
-class SeerConfig(BaseModel):
+class SeerrConfig(BaseModel):
     enabled: bool = False
-    # "seer" covers both Overseerr and Jellyseerr (same API).
+    # "seerr" covers both Overseerr and Jellyseerr (same API).
     base_url: Optional[str] = None  # e.g. http://jellyseerr:5055
     api_key: Optional[str] = None
+    request_4k: bool = False  # request 4K quality instead of standard
 
 
 class OmbiConfig(BaseModel):
@@ -105,7 +106,7 @@ class TrackerConfig(BaseModel):
 class RequesterConfig(BaseModel):
     """Which requester (if any) to also send a movie request to."""
 
-    provider: Literal["none", "seer", "ombi"] = "none"
+    provider: Literal["none", "seerr", "ombi"] = "none"
 
 
 class Config(BaseModel):
@@ -116,7 +117,7 @@ class Config(BaseModel):
     trakt: TraktConfig = TraktConfig()
     ryot: RyotConfig = RyotConfig()
     yamtrack: YamtrackConfig = YamtrackConfig()
-    seer: SeerConfig = SeerConfig()
+    seerr: SeerrConfig = SeerrConfig()
     ombi: OmbiConfig = OmbiConfig()
 
     # State file used to dedupe processed emails across restarts.
@@ -136,8 +137,8 @@ class Config(BaseModel):
             self.ryot.enabled = True
         if self.tracker.provider == "yamtrack" and not self.yamtrack.enabled:
             self.yamtrack.enabled = True
-        if self.requester.provider == "seer" and not self.seer.enabled:
-            self.seer.enabled = True
+        if self.requester.provider == "seerr" and not self.seerr.enabled:
+            self.seerr.enabled = True
         if self.requester.provider == "ombi" and not self.ombi.enabled:
             self.ombi.enabled = True
         return self
@@ -230,10 +231,11 @@ def _apply_env_overrides(data: dict[str, Any]) -> dict[str, Any]:
     _set("yamtrack", "base_url", _env("YAMTRACK_BASE_URL"))
     _set("yamtrack", "webhook_token", _env("YAMTRACK_WEBHOOK_TOKEN"))
 
-    # Seer
-    _set("seer", "enabled", _env_bool("SEER_ENABLED"))
-    _set("seer", "base_url", _env("SEER_BASE_URL"))
-    _set("seer", "api_key", _env("SEER_API_KEY"))
+    # Seerr (Jellyseerr / Overseerr)
+    _set("seerr", "enabled", _env_bool("SEERR_ENABLED"))
+    _set("seerr", "base_url", _env("SEERR_BASE_URL"))
+    _set("seerr", "api_key", _env("SEERR_API_KEY"))
+    _set("seerr", "request_4k", _env_bool("SEERR_REQUEST_4K"))
 
     # Ombi
     _set("ombi", "enabled", _env_bool("OMBI_ENABLED"))

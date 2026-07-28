@@ -39,7 +39,7 @@ by an `async startup()` method on the integration client:
 - **Yamtrack** (`integrations.yamtrack.YamtrackClient.startup`) —
   POSTs to the configured webhook URL; 404 = bad token, connection
   errors bubble up.
-- **Seer** (`integrations.seer.SeerClient.startup`) — `GET /auth/me`.
+- **Seerr** (`integrations.seerr.SeerrClient.startup`) — `GET /auth/me`.
 - **Ombi** (`integrations.ombi.OmbiClient.startup`) —
   `GET /api/v1/Settings/about`.
 
@@ -75,7 +75,7 @@ ticketarr/integrations/
   trakt.py                   OAuth device flow + /sync/history
   ryot.py                    GraphQL: metadataSearch + deployBulkMetadataProgressUpdate
   yamtrack.py                Jellyfin-style webhook receiver
-  seer.py                    Jellyseerr/Overseerr /api/v1/request
+  seerr.py                   Jellyseerr/Overseerr /api/v1/request
   ombi.py                    Ombi /api/v2/Requests/movie (fallback to v1)
 ```
 
@@ -124,8 +124,9 @@ change:{createNewCompleted:{finishedOnDate:{timestamp}}}}])`
   **Watched-at is set server-side** (`timezone.now()`), so historical
   timestamps cannot be backdated through this path.
 - **Jellyseerr / Overseerr** — https://api-docs.overseerr.dev/
-  - `POST /api/v1/request` with `{"mediaType":"movie","mediaId":<tmdb>}`,
-    `X-Api-Key: <key>`
+  - `POST /api/v1/request` with `{"mediaType":"movie","mediaId":<tmdb>,"is4k":<bool>}`,
+    `X-Api-Key: <key>`. The `is4k` field is optional (defaults to false);
+    ticketarr sends it only when `seerr.request_4k` is true.
 - **Ombi** — https://docs.ombi.app/
   - `POST /api/v2/Requests/movie` with `{"theMovieDbId":<tmdb>}`, header
     `ApiKey: <key>` (note the header name is literally `ApiKey`, not
