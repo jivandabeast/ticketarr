@@ -86,6 +86,29 @@ class IMAPMonitor:
         self._stop.set()
         self._new_message_event.set()
 
+    async def startup(self) -> None:
+        """Prove the IMAP host + credentials + mailbox before entering the
+        polling loop. Any connection / auth / mailbox error is raised so the
+        process fails fast at boot instead of silently spinning."""
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._verify_connection)
+
+    def _verify_connection(self) -> None:
+        cfg = self._cfg
+        try:
+            with IMAPClient(cfg.host, port=cfg.port, ssl=cfg.ssl) as client:
+                client.login(cfg.username, cfg.password)
+                # Raises if the mailbox doesn't exist / isn't selectable.
+                client.select_folder(cfg.mailbox, readonly=True)
+        except Exception as exc:
+            raise RuntimeError(
+                f"IMAP verify failed for {cfg.username}@{cfg.host}:{cfg.port} "
+                f"(mailbox={cfg.mailbox!r}): {exc}"
+            ) from exc
+        log.info(
+            "IMAP: verified %s@%s (mailbox=%s)", cfg.username, cfg.host, cfg.mailbox
+        )
+
     # ---- iteration --------------------------------------------------------
 
     async def stream(self) -> AsyncIterator[InboundEmail]:

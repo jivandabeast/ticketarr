@@ -19,8 +19,41 @@ healthchecks. Do not add public endpoints without an explicit user request.
    `ticketarr/config.py` and `config.example.yml` / `.env.example`.
 3. **Fail soft, log loud.** A single failing external service should never
    crash the loop. Log the error, keep processing the next email.
+   _Exception:_ boot-time credential verification is fail-fast — see
+   "Startup verification" below.
 4. **Idempotent.** Every email carries a stable fingerprint (Message-ID or
    UIDVALIDITY/UID). Processing the same fingerprint twice must be a no-op.
+
+## Startup verification
+
+Every configured integration must prove its credentials at boot. This is done
+by an `async startup()` method on the integration client:
+
+- **IMAP** (`imap_monitor.IMAPMonitor.startup`) — connects, logs in,
+  selects the mailbox read-only.
+- **TMDB** (`tmdb.TMDBClient.startup`) — `GET /3/configuration`.
+- **Trakt** (`integrations.trakt.TraktClient.startup`) — runs the device
+  code flow if no token is cached; refreshes if expired.
+- **Ryot** (`integrations.ryot.RyotClient.startup`) — authenticated
+  `userDetails` GraphQL query.
+- **Yamtrack** (`integrations.yamtrack.YamtrackClient.startup`) —
+  POSTs to the configured webhook URL; 404 = bad token, connection
+  errors bubble up.
+- **Seer** (`integrations.seer.SeerClient.startup`) — `GET /auth/me`.
+- **Ombi** (`integrations.ombi.OmbiClient.startup`) —
+  `GET /api/v1/Settings/about`.
+
+The orchestrator (`Application._verify_all`) runs each `startup()` before
+entering the IMAP polling loop. **Any failure is FATAL:** the process
+logs the offending component and exits so docker/systemd restart policies
+can retry. `/healthz` returns HTTP 503 with `{"status": "starting",
+"components": {...}}` until every component reports "ok", then flips to
+HTTP 200 with `{"status": "ok", ...}`.
+
+When adding a new integration, implement `startup()`. Keep the call
+cheap (single authenticated request) and always raise `RuntimeError` with
+a clear, actionable message ("Ombi rejected the ApiKey (HTTP 401)") — the
+message goes straight to the operator's logs and to `/healthz`.
 
 ## Layout
 
@@ -151,7 +184,9 @@ present) before changing anchor logic.
 1. Add a config section in `ticketarr/config.py` (both the pydantic model and
    the env-overlay function).
 2. Implement a client in `ticketarr/integrations/<name>.py` that satisfies the
-   `Tracker` or `Requester` protocol in `integrations/base.py`.
+   `Tracker` or `Requester` protocol in `integrations/base.py`. **Include an
+   `async startup()`** that performs a cheap authenticated call and raises
+   `RuntimeError` on failure — see "Startup verification" above.
 3. Wire it into `_build_tracker` / `_build_requester` in `ticketarr/app.py`.
 4. Extend `TrackerConfig` / `RequesterConfig` literal, update
    `config.example.yml`, `.env.example`, and the README provider table.

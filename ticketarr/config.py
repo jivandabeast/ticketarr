@@ -18,6 +18,8 @@ from pydantic import BaseModel, Field, model_validator
 _DEFAULT_CONFIG_PATHS = (
     "/config/config.yml",
     "/config/config.yaml",
+    "./config/config.yml",
+    "./config/config.yaml",
     "./config.yml",
     "./config.yaml",
 )

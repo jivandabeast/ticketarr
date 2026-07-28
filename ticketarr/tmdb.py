@@ -40,6 +40,20 @@ class TMDBClient:
     async def aclose(self) -> None:
         await self._client.aclose()
 
+    async def startup(self) -> None:
+        """Verify credentials by calling TMDB's config endpoint. Raises on
+        401 / 404 / connection errors so a bad key fails at boot."""
+        resp = await self._client.get("/configuration")
+        if resp.status_code == 401:
+            raise RuntimeError(
+                "TMDB rejected the configured api_key / bearer_token (HTTP 401)"
+            )
+        if resp.status_code >= 400:
+            raise RuntimeError(
+                f"TMDB /configuration returned {resp.status_code}: {resp.text[:200]}"
+            )
+        log.info("TMDB: credentials verified")
+
     async def search_movie(self, title: str, year: Optional[int] = None) -> Optional[TMDBMovie]:
         params: dict[str, str] = {"query": title, "include_adult": "false"}
         if year is not None:

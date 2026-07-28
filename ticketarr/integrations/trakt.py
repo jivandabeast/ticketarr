@@ -59,6 +59,12 @@ class TraktClient:
     async def aclose(self) -> None:
         await self._http.aclose()
 
+    async def startup(self) -> None:
+        """Kick off the device flow at process start if we don't have a token
+        yet. This surfaces the ``trakt.tv/activate`` prompt on the very first
+        run instead of waiting for the first AMC email to arrive."""
+        await self.ensure_authorized()
+
     # ---- Token persistence ------------------------------------------------
 
     def _load_token_file(self) -> None:

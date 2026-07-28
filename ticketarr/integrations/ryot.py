@@ -36,6 +36,25 @@ class RyotClient:
     async def aclose(self) -> None:
         await self._http.aclose()
 
+    async def startup(self) -> None:
+        """Verify base URL + bearer with a tiny authenticated GraphQL query.
+        `userDetails` requires auth; a missing/invalid token returns errors."""
+        try:
+            resp = await self._http.post(
+                self._endpoint,
+                json={"query": "query { userDetails { __typename } }"},
+            )
+        except httpx.HTTPError as exc:
+            raise RuntimeError(f"Ryot unreachable at {self._endpoint}: {exc}") from exc
+        if resp.status_code != 200:
+            raise RuntimeError(
+                f"Ryot returned HTTP {resp.status_code}: {resp.text[:200]}"
+            )
+        payload = resp.json()
+        if payload.get("errors"):
+            raise RuntimeError(f"Ryot rejected credentials: {payload['errors']}")
+        log.info("Ryot: credentials verified")
+
     async def _gql(self, query: str, variables: dict[str, Any]) -> Optional[dict[str, Any]]:
         try:
             resp = await self._http.post(

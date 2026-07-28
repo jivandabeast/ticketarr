@@ -30,6 +30,24 @@ class OmbiClient:
     async def aclose(self) -> None:
         await self._http.aclose()
 
+    async def startup(self) -> None:
+        """Verify base URL + ApiKey against Ombi's /api/v1/Settings/about
+        (works on every Ombi version and requires the ApiKey header)."""
+        try:
+            resp = await self._http.get(self._base + "/api/v1/Settings/about")
+        except httpx.HTTPError as exc:
+            raise RuntimeError(f"Ombi unreachable at {self._base}: {exc}") from exc
+        if resp.status_code in (401, 403):
+            raise RuntimeError(
+                f"Ombi rejected the ApiKey (HTTP {resp.status_code}). "
+                "Check ombi.api_key."
+            )
+        if resp.status_code >= 400:
+            raise RuntimeError(
+                f"Ombi /Settings/about returned {resp.status_code}: {resp.text[:200]}"
+            )
+        log.info("Ombi: credentials verified")
+
     async def request_movie(self, tmdb_id: int, title: str) -> bool:
         body = {"theMovieDbId": tmdb_id, "languageCode": self._language}
         for path in ("/api/v2/Requests/movie", "/api/v1/Request/movie"):

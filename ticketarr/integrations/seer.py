@@ -28,6 +28,24 @@ class SeerClient:
     async def aclose(self) -> None:
         await self._http.aclose()
 
+    async def startup(self) -> None:
+        """Verify base URL + API key against Jellyseerr/Overseerr's
+        /auth/me endpoint (requires an authenticated session/API key)."""
+        try:
+            resp = await self._http.get("/auth/me")
+        except httpx.HTTPError as exc:
+            raise RuntimeError(f"Seer unreachable: {exc}") from exc
+        if resp.status_code == 403 or resp.status_code == 401:
+            raise RuntimeError(
+                f"Seer rejected the API key (HTTP {resp.status_code}). "
+                "Check seer.api_key."
+            )
+        if resp.status_code >= 400:
+            raise RuntimeError(
+                f"Seer /auth/me returned {resp.status_code}: {resp.text[:200]}"
+            )
+        log.info("Seer: credentials verified")
+
     async def request_movie(self, tmdb_id: int, title: str) -> bool:
         try:
             resp = await self._http.post(

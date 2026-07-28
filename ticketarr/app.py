@@ -9,6 +9,7 @@ from typing import Optional
 
 import uvicorn
 from fastapi import FastAPI
+from fastapi.responses import JSONResponse
 
 from .config import Config
 from .imap_monitor import IMAPMonitor, InboundEmail
@@ -92,6 +93,8 @@ class Application:
             )
         self.monitor = IMAPMonitor(cfg.imap, senders)
         self._stopping = False
+        self._ready = False
+        self._verified: dict[str, str] = {}  # component -> "ok" | error message
 
         self._fastapi = FastAPI(title="ticketarr", docs_url=None, redoc_url=None, openapi_url=None)
         self._fastapi.get("/healthz")(self._healthz)
@@ -99,8 +102,30 @@ class Application:
 
     # ---- healthcheck ------------------------------------------------------
 
-    async def _healthz(self) -> dict[str, str]:
-        return {"status": "ok"}
+    async def _healthz(self) -> JSONResponse:
+        """503 until every configured integration has verified.
+
+        Once ready, returns {"status": "ok", "components": {...}}. If a
+        component ever transitions to a failed state at runtime we surface
+        that here too.
+        """
+        if not self._ready:
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "status": "starting",
+                    "components": self._verified or {"boot": "pending"},
+                },
+            )
+        if any(v != "ok" for v in self._verified.values()):
+            return JSONResponse(
+                status_code=503,
+                content={"status": "degraded", "components": self._verified},
+            )
+        return JSONResponse(
+            status_code=200,
+            content={"status": "ok", "components": self._verified},
+        )
 
     # ---- lifecycle --------------------------------------------------------
 
@@ -143,6 +168,40 @@ class Application:
         except Exception as exc:  # pragma: no cover
             log.warning("Healthcheck server exited: %s", exc)
 
+    # ---- startup verification --------------------------------------------
+
+    async def _verify_all(self) -> None:
+        """Verify every configured integration before entering the main loop.
+
+        Failures here are FATAL — we log the offending component and re-raise
+        so docker/systemd restart policies can retry with a clean slate. The
+        /healthz endpoint stays 503 until every component reports "ok".
+        """
+        components: list[tuple[str, object]] = [
+            ("imap", self.monitor),
+            ("tmdb", self.tmdb),
+        ]
+        if self.tracker is not None:
+            components.append((f"tracker:{self.cfg.tracker.provider}", self.tracker))
+        if self.requester is not None:
+            components.append((f"requester:{self.cfg.requester.provider}", self.requester))
+
+        for name, component in components:
+            startup = getattr(component, "startup", None)
+            if startup is None:
+                self._verified[name] = "ok"
+                continue
+            try:
+                await startup()
+            except Exception as exc:
+                self._verified[name] = f"error: {exc}"
+                log.error("%s verification failed: %s", name, exc)
+                raise
+            self._verified[name] = "ok"
+
+        self._ready = True
+        log.info("All integrations verified: %s", ", ".join(self._verified))
+
     # ---- main loop --------------------------------------------------------
 
     async def _process_forever(self) -> None:
@@ -153,6 +212,7 @@ class Application:
             self.cfg.imap.username,
             self.cfg.imap.host,
         )
+        await self._verify_all()
         async for msg in self.monitor.stream():
             if self._stopping:
                 break

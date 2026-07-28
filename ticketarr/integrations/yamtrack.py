@@ -32,6 +32,25 @@ class YamtrackClient:
     async def aclose(self) -> None:
         await self._http.aclose()
 
+    async def startup(self) -> None:
+        """Confirm the webhook URL is reachable and the token is valid.
+
+        Yamtrack has no ping endpoint, but hitting the webhook with a
+        malformed payload gives us a signal: reachable + accepted-token
+        returns 400/422, wrong token returns 404, wrong host raises."""
+        try:
+            resp = await self._http.post(self._url, json={"Event": "ticketarr.ping"})
+        except httpx.HTTPError as exc:
+            raise RuntimeError(f"Yamtrack unreachable at {self._url}: {exc}") from exc
+        if resp.status_code == 404:
+            raise RuntimeError(
+                "Yamtrack rejected the webhook token (HTTP 404). "
+                "Check yamtrack.webhook_token and the base_url."
+            )
+        # Any other status (200/204/400/422/500) proves the endpoint exists and
+        # the token is accepted. Yamtrack's exact behavior varies by version.
+        log.info("Yamtrack: webhook reachable")
+
     def _payload(self, tmdb_id: int, title: str, event: str) -> dict[str, Any]:
         return {
             "Event": event,
