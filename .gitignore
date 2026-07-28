@@ -222,3 +222,10 @@ __marimo__/
 !config.example.yml
 state.json
 trakt_token.json
+
+# Real AMC / theater emails contain PII (names, order numbers, gmail
+# addresses). The sidecar assertions are derived from those same emails
+# (movie titles, theater names, order numbers), so treat them the same way:
+# keep everything local, ignore both from git.
+tests/fixtures/**/*.eml
+tests/fixtures/**/*.expected.json

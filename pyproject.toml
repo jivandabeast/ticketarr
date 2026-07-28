@@ -21,8 +21,18 @@ dependencies = [
     "python-dateutil>=2.9",
 ]
 
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+]
+
 [project.scripts]
 ticketarr = "ticketarr.__main__:main"
 
 [tool.setuptools.packages.find]
 include = ["ticketarr*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+filterwarnings = ["ignore::DeprecationWarning"]

@@ -116,6 +116,10 @@ def _classify(subject: str, body: str) -> str:
         return "cancellation"
     if "refund" in subj and "amc" in subj:
         return "cancellation"
+    # "Your Refund Receipt" (no "AMC" in the subject). Fall back to the
+    # body-level markers AMC always includes on a refund email.
+    if "refund" in subj and "refund date" in b and "refunded tickets" in b:
+        return "cancellation"
     if "ticket reservation details" in b or "ticket purchase details" in b:
         return "reservation"
     if "thank you for visiting" in b or "thank you for seeing" in subj:

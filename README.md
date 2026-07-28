@@ -129,9 +129,24 @@ by [@ijoshi129](https://github.com/ijoshi129). Thank you for the work.
 ```
 python -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
+pip install -e '.[dev]'
 python -m ticketarr
 ```
+
+### Running the tests
+
+The parsers are the highest-risk surface, so the test suite is fixture-driven:
+drop **sanitized real emails** into `tests/fixtures/<chain>/` as `.eml` files
+and pytest will parametrize the parser assertions over every one.
+
+```
+pytest
+```
+
+Filename conventions and optional `<name>.expected.json` sidecar assertions
+are documented in [`tests/fixtures/amc/README.md`](./tests/fixtures/amc/README.md).
+The suite runs green even when the fixtures directory is empty, so you can
+commit the harness now and add real emails later.
 
 See [`AGENTS.md`](./AGENTS.md) for architecture notes and pointers relevant
 for future edits.
