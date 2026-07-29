@@ -13,9 +13,13 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, fields as _order_fields_impl
 from pathlib import Path
 from typing import Optional
+
+
+def _order_fields():
+    return _order_fields_impl(OrderRecord)
 
 
 @dataclass
@@ -25,6 +29,11 @@ class OrderRecord:
     title: Optional[str]
     watched_at: Optional[str]  # ISO 8601 UTC
     theater_name: Optional[str] = None
+    # Per-tracker external ids we may need to reference when undoing a
+    # scrobble. Currently only Yamtrack populates this ("yamtrack" ->
+    # instance_id as string). Kept generic so future trackers can add
+    # their own opaque handles without another schema bump.
+    tracker_ids: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -48,8 +57,13 @@ class StateStore:
             return
         self.state.processed = set(raw.get("processed", []))
         orders = raw.get("orders", {})
+        # Filter kwargs to only recognized OrderRecord fields so that old
+        # state files (or future extensions) don't crash the loader.
+        known = {f.name for f in _order_fields()}
         self.state.orders = {
-            k: OrderRecord(**v) for k, v in orders.items() if isinstance(v, dict)
+            k: OrderRecord(**{kk: vv for kk, vv in v.items() if kk in known})
+            for k, v in orders.items()
+            if isinstance(v, dict)
         }
 
     async def save(self) -> None:

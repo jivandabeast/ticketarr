@@ -45,11 +45,14 @@ def _build_tracker(cfg: Config) -> Optional[Tracker]:
     if provider == "yamtrack":
         from .integrations.yamtrack import YamtrackClient
 
-        if not (cfg.yamtrack.base_url and cfg.yamtrack.webhook_token):
-            raise RuntimeError("Yamtrack selected but base_url/webhook_token missing")
+        if not (cfg.yamtrack.base_url and cfg.yamtrack.username and cfg.yamtrack.password):
+            raise RuntimeError(
+                "Yamtrack selected but base_url/username/password missing"
+            )
         return YamtrackClient(
             base_url=cfg.yamtrack.base_url,
-            webhook_token=cfg.yamtrack.webhook_token,
+            username=cfg.yamtrack.username,
+            password=cfg.yamtrack.password,
         )
     return None
 
@@ -282,8 +285,23 @@ class Application:
             return
 
         watched_at = parsed.showtime
+        tracker_ids: dict[str, str] = {}
         if self.tracker is not None:
-            await self.tracker.scrobble(movie.tmdb_id, watched_at, movie.title)
+            # Yamtrack needs the movie's runtime to set end_date; other
+            # trackers ignore it. Only pay for the extra TMDB call when
+            # the runtime will actually be used.
+            scrobble_kwargs: dict[str, object] = {}
+            if self.cfg.tracker.provider == "yamtrack":
+                runtime = await self.tmdb.get_runtime(movie.tmdb_id)
+                if runtime is not None:
+                    scrobble_kwargs["runtime_minutes"] = runtime
+            result = await self.tracker.scrobble(
+                movie.tmdb_id, watched_at, movie.title, **scrobble_kwargs
+            )
+            # Yamtrack's scrobble() returns the newly-created instance_id
+            # (or None on failure). Everything else returns a bool.
+            if self.cfg.tracker.provider == "yamtrack" and isinstance(result, int):
+                tracker_ids["yamtrack"] = str(result)
 
         if self.requester is not None:
             await self.requester.request_movie(movie.tmdb_id, movie.title)
@@ -295,6 +313,7 @@ class Application:
                 title=movie.title,
                 watched_at=watched_at.isoformat(),
                 theater_name=parsed.theater_name,
+                tracker_ids=tracker_ids,
             )
         )
 
@@ -321,7 +340,17 @@ class Application:
             return
 
         if self.tracker is not None:
-            await self.tracker.unscrobble(tmdb_id, watched_at, title or f"tmdb:{tmdb_id}")
+            unscrobble_kwargs: dict[str, object] = {}
+            if self.cfg.tracker.provider == "yamtrack" and record is not None:
+                raw_iid = record.tracker_ids.get("yamtrack")
+                if raw_iid:
+                    try:
+                        unscrobble_kwargs["instance_id"] = int(raw_iid)
+                    except ValueError:
+                        pass
+            await self.tracker.unscrobble(
+                tmdb_id, watched_at, title or f"tmdb:{tmdb_id}", **unscrobble_kwargs
+            )
 
     async def _lookup_tmdb(self, title: str, showtime: Optional[datetime]) -> Optional[TMDBMovie]:
         year = showtime.year if showtime else None

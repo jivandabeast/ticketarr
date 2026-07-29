@@ -16,6 +16,7 @@ class TMDBMovie:
     tmdb_id: int
     title: str
     release_date: Optional[str]  # YYYY-MM-DD
+    runtime: Optional[int] = None  # minutes; only populated by get_movie()
 
 
 class TMDBClient:
@@ -83,3 +84,21 @@ class TMDBClient:
             title=best.get("title") or title,
             release_date=best.get("release_date") or None,
         )
+
+    async def get_runtime(self, tmdb_id: int) -> Optional[int]:
+        """Return the movie's runtime in minutes, or None on any failure.
+
+        Kept as a separate call (rather than folded into ``search_movie``)
+        so it can be skipped when the caller doesn't need it — e.g. when
+        the tracker isn't Yamtrack.
+        """
+        try:
+            resp = await self._client.get(f"/movie/{tmdb_id}")
+            resp.raise_for_status()
+        except httpx.HTTPError as exc:
+            log.warning("TMDB runtime lookup failed for %s: %s", tmdb_id, exc)
+            return None
+        runtime = resp.json().get("runtime")
+        if isinstance(runtime, int) and runtime > 0:
+            return runtime
+        return None

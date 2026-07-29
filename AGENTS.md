@@ -37,8 +37,8 @@ by an `async startup()` method on the integration client:
 - **Ryot** (`integrations.ryot.RyotClient.startup`) — authenticated
   `userDetails` GraphQL query.
 - **Yamtrack** (`integrations.yamtrack.YamtrackClient.startup`) —
-  POSTs to the configured webhook URL; 404 = bad token, connection
-  errors bubble up.
+  logs into `/accounts/login/` and verifies the resulting session
+  by fetching the home page.
 - **Seerr** (`integrations.seerr.SeerrClient.startup`) — `GET /auth/me`.
 - **Ombi** (`integrations.ombi.OmbiClient.startup`) —
   `GET /api/v1/Settings/about`.
@@ -117,12 +117,38 @@ a restart will lose their link to the original scrobble.
   - Scrobble: `deployBulkMetadataProgressUpdate([{metadataId,
 change:{createNewCompleted:{finishedOnDate:{timestamp}}}}])`
   - Remove: `deleteSeenItem(seenId)` after reading `userMetadataDetails.history[].id`
-- **Yamtrack** — no public REST API; only supported entry point is the
-  Jellyfin webhook processor at `POST /webhook/jellyfin/<user_token>`. It
-  reads `Item.ProviderIds.Tmdb` and honors `Event=MarkPlayed`/`MarkUnplayed`
-  when the user has enabled the corresponding toggle in Integrations.
-  **Watched-at is set server-side** (`timezone.now()`), so historical
-  timestamps cannot be backdated through this path.
+- **Yamtrack** — **no official REST API** for creating watched-movie
+  entries with a specific timestamp. The Jellyfin webhook path exists
+  but overrides `watched_at` with `timezone.now()` server-side, so
+  we cannot backdate through it. To honor real showtimes, ticketarr
+  drives the same Django form endpoints that Yamtrack's own web UI
+  posts to:
+  - Login: `POST /accounts/login/` with `login`, `password`,
+    `csrfmiddlewaretoken` (django-allauth's default login form).
+    Session cookie + `csrftoken` cookie are reused thereafter with
+    `X-CSRFToken` on every write.
+  - Scrobble: `POST /media_save` with form fields
+    `media_type=movie`, `source=tmdb`, `media_id=<tmdb>`,
+    `status=Completed`, `score=`, `notes=`,
+    `start_date=<YYYY-MM-DDTHH:MM>`, `end_date=<YYYY-MM-DDTHH:MM>`.
+    An empty/absent `instance_id` creates a new Movie row (used
+    unconditionally: rewatches are common with AMC A-List / Regal
+    Unlimited, and always-creating never clobbers user-edited
+    score/notes).
+  - `end_date = start_date + runtime` (from TMDB `/movie/{id}.runtime`),
+    falling back to 120 minutes when runtime is unknown.
+  - Discover the new row's `instance_id`: `GET /track_modal/tmdb/movie/<tmdb>?return_url=/`,
+    scrape `<input name="instance_id" value="…">` from the rendered
+    form. The `Media` model's default ordering
+    (`["user", "item", "-created_at"]`) guarantees this is the row
+    we just created.
+  - Unscrobble: `POST /media_delete` with `instance_id` (persisted in
+    `state.json` under `orders[order#].tracker_ids["yamtrack"]`) and
+    `media_type=movie`.
+  - **These are unofficial internal endpoints.** A Yamtrack upgrade
+    can change the field names, CSRF handling, or ordering without
+    notice. Keep the whole Yamtrack contract confined to
+    `integrations/yamtrack.py` so a future breakage is one-file to fix.
 - **Jellyseerr / Overseerr** — https://api-docs.overseerr.dev/
   - `POST /api/v1/request` with `{"mediaType":"movie","mediaId":<tmdb>,"is4k":<bool>}`,
     `X-Api-Key: <key>`. The `is4k` field is optional (defaults to false);

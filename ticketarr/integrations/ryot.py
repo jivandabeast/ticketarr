@@ -98,7 +98,7 @@ class RyotClient:
         # items are strings (metadataIds) in Ryot's current schema.
         return items[0] if isinstance(items[0], str) else items[0].get("identifier")
 
-    async def scrobble(self, tmdb_id: int, watched_at: datetime, title: str) -> bool:
+    async def scrobble(self, tmdb_id: int, watched_at: datetime, title: str, **_kwargs) -> bool:
         metadata_id = await self._find_metadata_id(title, tmdb_id)
         if not metadata_id:
             log.warning("Ryot: could not resolve %s to a metadataId", title)
@@ -128,7 +128,7 @@ class RyotClient:
         log.info("Ryot: scrobbled %s (metadataId=%s)", title, metadata_id)
         return True
 
-    async def unscrobble(self, tmdb_id: int, watched_at: datetime | None, title: str) -> bool:
+    async def unscrobble(self, tmdb_id: int, watched_at: datetime | None, title: str, **_kwargs) -> bool:
         metadata_id = await self._find_metadata_id(title, tmdb_id)
         if not metadata_id:
             log.warning("Ryot: could not resolve %s to a metadataId (unscrobble)", title)

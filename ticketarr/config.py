@@ -78,7 +78,16 @@ class RyotConfig(BaseModel):
 class YamtrackConfig(BaseModel):
     enabled: bool = False
     base_url: Optional[str] = None  # e.g. http://yamtrack:8000
-    # Per-user webhook token (Yamtrack: Settings → Integrations).
+    # Yamtrack exposes no REST auth for creating watched-movie entries with a
+    # specific timestamp; ticketarr drives the internal /media_save form,
+    # which requires a real Django session. Provide the same
+    # username/password you use for the Yamtrack web UI.
+    username: Optional[str] = None
+    password: Optional[str] = None
+    # Legacy webhook token, no longer used (kept for state-file compatibility
+    # with older configs). Yamtrack's Jellyfin webhook overrides the caller's
+    # watched_at with server-side ``timezone.now()``, so ticketarr no longer
+    # uses it.
     webhook_token: Optional[str] = None
 
 
@@ -229,6 +238,8 @@ def _apply_env_overrides(data: dict[str, Any]) -> dict[str, Any]:
     # Yamtrack
     _set("yamtrack", "enabled", _env_bool("YAMTRACK_ENABLED"))
     _set("yamtrack", "base_url", _env("YAMTRACK_BASE_URL"))
+    _set("yamtrack", "username", _env("YAMTRACK_USERNAME"))
+    _set("yamtrack", "password", _env("YAMTRACK_PASSWORD"))
     _set("yamtrack", "webhook_token", _env("YAMTRACK_WEBHOOK_TOKEN"))
 
     # Seerr (Jellyseerr / Overseerr)

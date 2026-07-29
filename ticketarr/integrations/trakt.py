@@ -190,7 +190,7 @@ class TraktClient:
             "Authorization": f"Bearer {self._access_token}",
         }
 
-    async def scrobble(self, tmdb_id: int, watched_at: datetime, title: str) -> bool:
+    async def scrobble(self, tmdb_id: int, watched_at: datetime, title: str, **_kwargs) -> bool:
         await self.ensure_authorized()
         watched = watched_at.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
         body = {"movies": [{"watched_at": watched, "ids": {"tmdb": tmdb_id}}]}
@@ -210,7 +210,7 @@ class TraktClient:
             log.warning("Trakt: no-op (already in history?) for %s tmdb=%s", title, tmdb_id)
         return True
 
-    async def unscrobble(self, tmdb_id: int, watched_at: datetime | None, title: str) -> bool:
+    async def unscrobble(self, tmdb_id: int, watched_at: datetime | None, title: str, **_kwargs) -> bool:
         await self.ensure_authorized()
         body = {"movies": [{"ids": {"tmdb": tmdb_id}}]}
         try:

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Protocol
+from typing import Any, Protocol
 from datetime import datetime
 
 
@@ -15,10 +15,16 @@ class Tracker(Protocol):
         API-key based trackers.
         """
 
-    async def scrobble(self, tmdb_id: int, watched_at: datetime, title: str) -> bool:
-        """Mark a movie watched. Returns True on success."""
+    async def scrobble(self, tmdb_id: int, watched_at: datetime, title: str, **kwargs: Any) -> Any:
+        """Mark a movie watched.
 
-    async def unscrobble(self, tmdb_id: int, watched_at: datetime | None, title: str) -> bool:
+        Trackers that need per-scrobble handles for later cleanup (e.g.
+        Yamtrack's ``instance_id``) may return them here; the orchestrator
+        stashes whatever it gets in ``OrderRecord.tracker_ids``. Simpler
+        trackers can just return True/False.
+        """
+
+    async def unscrobble(self, tmdb_id: int, watched_at: datetime | None, title: str, **kwargs: Any) -> bool:
         """Remove a previously-scrobbled movie. Returns True on success."""
 
     async def aclose(self) -> None: ...
