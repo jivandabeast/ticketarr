@@ -11,7 +11,7 @@ from __future__ import annotations
 import asyncio
 import email
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from email.header import decode_header, make_header
 from email.message import Message
@@ -33,6 +33,10 @@ class InboundEmail:
     text: Optional[str]
     html: Optional[str]
     uid: int
+    #: Raw bytes for every inline image part (``Content-ID`` or
+    #: ``inline`` disposition). Parsers that need OCR (e.g. Regal) pick
+    #: through this list; other parsers can ignore it.
+    images: list[bytes] = field(default_factory=list)
 
 
 def _decode(raw: Optional[str]) -> str:
@@ -44,9 +48,10 @@ def _decode(raw: Optional[str]) -> str:
         return raw
 
 
-def _extract_bodies(msg: Message) -> tuple[Optional[str], Optional[str]]:
+def _extract_bodies(msg: Message) -> tuple[Optional[str], Optional[str], list[bytes]]:
     text_part: Optional[str] = None
     html_part: Optional[str] = None
+    images: list[bytes] = []
     for part in msg.walk():
         ctype = part.get_content_type()
         disp = str(part.get("Content-Disposition") or "")
@@ -56,7 +61,14 @@ def _extract_bodies(msg: Message) -> tuple[Optional[str], Optional[str]]:
             text_part = _decode_payload(part)
         elif ctype == "text/html" and html_part is None:
             html_part = _decode_payload(part)
-    return text_part, html_part
+        elif ctype.startswith("image/"):
+            try:
+                payload = part.get_payload(decode=True)
+            except Exception:  # pragma: no cover - defensive
+                payload = None
+            if payload:
+                images.append(payload)
+    return text_part, html_part, images
 
 
 def _decode_payload(part: Message) -> Optional[str]:
@@ -186,7 +198,7 @@ class IMAPMonitor:
                 except (TypeError, ValueError):
                     parsed_date = None
 
-                text_body, html_body = _extract_bodies(msg)
+                text_body, html_body, image_bodies = _extract_bodies(msg)
 
                 results.append(
                     InboundEmail(
@@ -197,6 +209,7 @@ class IMAPMonitor:
                         text=text_body,
                         html=html_body,
                         uid=int(uid),
+                        images=image_bodies,
                     )
                 )
 

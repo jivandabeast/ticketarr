@@ -67,7 +67,7 @@ ticketarr/parsers/           per-chain email parsers
   base.py                    ParsedEmail dataclass + EmailParser Protocol
   util.py                    shared helpers (body_text, clean, date parsers)
   amc.py                     AMC A-List (ported from @ijoshi129/Marquee)
-  # regal.py                 Regal Unlimited (planned — awaiting sample emails)
+  regal.py                   Regal Unlimited (subject-line title + booking code)
 ticketarr/state.py           JSON state store (`processed` set, `orders` map)
 ticketarr/tmdb.py            TMDB /search/movie client
 ticketarr/integrations/

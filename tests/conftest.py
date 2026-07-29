@@ -28,6 +28,7 @@ class LoadedEmail:
     from_addr: str
     html: Optional[str]
     text: Optional[str]
+    images: list[bytes]
 
     @property
     def name(self) -> str:
@@ -43,9 +44,10 @@ def _decode(raw: Optional[str]) -> str:
         return raw
 
 
-def _bodies(msg: EmailMessage) -> tuple[Optional[str], Optional[str]]:
+def _bodies(msg: EmailMessage) -> tuple[Optional[str], Optional[str], list[bytes]]:
     text_part: Optional[str] = None
     html_part: Optional[str] = None
+    images: list[bytes] = []
     for part in msg.walk():
         if part.is_multipart():
             continue
@@ -56,28 +58,34 @@ def _bodies(msg: EmailMessage) -> tuple[Optional[str], Optional[str]]:
         payload = part.get_payload(decode=True)
         if payload is None:
             continue
-        charset = part.get_content_charset() or "utf-8"
-        try:
-            decoded = payload.decode(charset, errors="replace")
-        except LookupError:
-            decoded = payload.decode("utf-8", errors="replace")
         if ctype == "text/plain" and text_part is None:
-            text_part = decoded
+            charset = part.get_content_charset() or "utf-8"
+            try:
+                text_part = payload.decode(charset, errors="replace")
+            except LookupError:
+                text_part = payload.decode("utf-8", errors="replace")
         elif ctype == "text/html" and html_part is None:
-            html_part = decoded
-    return text_part, html_part
+            charset = part.get_content_charset() or "utf-8"
+            try:
+                html_part = payload.decode(charset, errors="replace")
+            except LookupError:
+                html_part = payload.decode("utf-8", errors="replace")
+        elif ctype.startswith("image/"):
+            images.append(payload)
+    return text_part, html_part, images
 
 
 def load_eml(path: Path) -> LoadedEmail:
     raw = path.read_bytes()
     msg: EmailMessage = email.message_from_bytes(raw, policy=policy.default)
-    text, html = _bodies(msg)
+    text, html, images = _bodies(msg)
     return LoadedEmail(
         path=path,
         subject=_decode(msg.get("Subject")),
         from_addr=_decode(msg.get("From")),
         html=html,
         text=text,
+        images=images,
     )
 
 
@@ -100,13 +108,18 @@ _FIXTURE_KIND_BY_MARKER = {
     "amc_thankyous": ("amc", "thankyou_"),
     "amc_skips": ("amc", "skip_"),
     "amc_all": ("amc", ""),  # every .eml under fixtures/amc/
+    "regal_reservations": ("regal", "reservation_"),
+    "regal_cancellations": ("regal", "cancellation_"),
+    "regal_skips": ("regal", "skip_"),
+    "regal_all": ("regal", ""),  # every .eml under fixtures/regal/
 }
 
 
 def pytest_configure(config) -> None:  # type: ignore[no-untyped-def]
-    for marker in _FIXTURE_KIND_BY_MARKER:
+    for marker, (chain, _prefix) in _FIXTURE_KIND_BY_MARKER.items():
         config.addinivalue_line(
-            "markers", f"{marker}: parametrize `path` over matching AMC .eml fixtures"
+            "markers",
+            f"{marker}: parametrize `path` over matching {chain} .eml fixtures",
         )
 
 

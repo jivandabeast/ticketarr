@@ -1,22 +1,28 @@
 # ticketarr
 
 A tiny, headless Python service that watches an email inbox for AMC A-List
-reservation / cancellation emails and mirrors them to your movie tracker
-(Trakt, Ryot, or Yamtrack). Optionally submits a request for the same movie to
-Jellyseerr/Overseerr ("Seerr") or Ombi.
+and Regal Unlimited reservation / cancellation emails and mirrors them to
+your movie tracker (Trakt, Ryot, or Yamtrack). Optionally submits a request
+for the same movie to Jellyseerr/Overseerr ("Seerr") or Ombi.
 
-Support for additional theater chains (e.g. Regal Unlimited) is designed to
-drop in as a single new parser module — see
+Support for additional theater chains is designed to drop in as a single
+new parser module — see
 [AGENTS.md](./AGENTS.md#adding-a-new-theater-chain-eg-regal-unlimited).
 
 No UI. No public endpoints. Just a docker-native background worker.
 
 ## How it works
 
-1. Log into your IMAP inbox and look for messages from
-   `AMCTheatres@amctheatres.com`.
+1. Log into your IMAP inbox and look for messages from any registered
+   parser's canonical sender addresses. Out of the box:
+   - **AMC A-List** — `AMCTheatres@amctheatres.com`
+   - **Regal Unlimited** — `tickets@regaltickets.com` (reservations),
+     `noreply@regaltickets.com` (refunds)
 2. Classify each message (reservation / cancellation / other).
-3. Parse the movie title, theater, showtime, and order number.
+3. Parse the movie title, theater, showtime, and order/booking number.
+   (Regal reservation emails encode the theater + showtime inside an
+   inline JPEG, so ticketarr uses the subject-line title + booking code
+   and falls back to email-received time as the watched-at timestamp.)
 4. Resolve the movie to a TMDB id.
 5. Report the movie to the configured tracker with the showtime as the
    watched-at timestamp. On a cancellation, remove the corresponding history
@@ -61,7 +67,7 @@ See [`config.example.yml`](./config.example.yml) and
 
 ### Required
 
-- IMAP host + credentials for the inbox that receives AMC emails
+- IMAP host + credentials for the inbox that receives ticket emails
 - **TMDB** API key (v3) or bearer token (v4 read access token)
 - One of the tracker providers (`trakt`, `ryot`, `yamtrack`) — or `none` if
   you only want to submit requests
@@ -69,10 +75,11 @@ See [`config.example.yml`](./config.example.yml) and
 ### Filtering senders
 
 By default ticketarr polls for messages from every registered parser's
-canonical From-addresses (currently just `AMCTheatres@amctheatres.com`;
-Regal Unlimited coming later). If you want to poll a different / additional
-set of senders — for example, a friend who forwards you tickets, or a
-SimpleLogin / 33mail alias — set an explicit list.
+canonical From-addresses (`AMCTheatres@amctheatres.com`,
+`tickets@regaltickets.com`, `noreply@regaltickets.com`). If you want to
+poll a different / additional set of senders — for example, a friend who
+forwards you tickets, or a SimpleLogin / 33mail alias — set an explicit
+list.
 
 YAML (`imap.sender_filters` in `config.yml`):
 
@@ -80,13 +87,15 @@ YAML (`imap.sender_filters` in `config.yml`):
 imap:
   sender_filters:
     - AMCTheatres@amctheatres.com
+    - tickets@regaltickets.com
+    - noreply@regaltickets.com
     - friend@gmail.com
 ```
 
 Environment variable (`IMAP_SENDER_FILTERS`, comma-separated):
 
 ```bash
-IMAP_SENDER_FILTERS="AMCTheatres@amctheatres.com,friend@gmail.com"
+IMAP_SENDER_FILTERS="AMCTheatres@amctheatres.com,tickets@regaltickets.com,noreply@regaltickets.com,friend@gmail.com"
 ```
 
 Setting this explicitly **replaces** the default list — include every
@@ -128,7 +137,8 @@ ticketarr/                    Python package
   │    ├─ __init__.py         dispatcher + REGISTRY
   │    ├─ base.py             ParsedEmail + EmailParser protocol
   │    ├─ util.py             shared regex/date helpers
-  │    └─ amc.py              AMC A-List (ported from Marquee)
+  │    ├─ amc.py              AMC A-List (ported from Marquee)
+  │    └─ regal.py            Regal Unlimited
   ├─ state.py                 JSON state store (dedupe + order → tmdb map)
   ├─ tmdb.py                  TMDB search client
   └─ integrations/

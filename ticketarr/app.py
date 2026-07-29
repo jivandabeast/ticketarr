@@ -229,7 +229,11 @@ class Application:
         if self.state.already_processed(msg.fingerprint):
             return
 
-        parsed = parse_email(msg.subject, msg.html, msg.text, from_addr=msg.from_addr)
+        parsed = parse_email(
+            msg.subject, msg.html, msg.text,
+            from_addr=msg.from_addr,
+            images=msg.images,
+        )
 
         if parsed.kind == "other" or not parsed.ok:
             if parsed.skip_reason:

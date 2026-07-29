@@ -61,4 +61,5 @@ class EmailParser(Protocol):
         subject: str,
         html: Optional[str],
         text: Optional[str],
+        images: Optional[list[bytes]] = None,
     ) -> ParsedEmail: ...

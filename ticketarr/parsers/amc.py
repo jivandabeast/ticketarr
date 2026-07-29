@@ -93,6 +93,7 @@ class AMCParser:
         subject: str,
         html: Optional[str],
         text: Optional[str],
+        images: Optional[list[bytes]] = None,
     ) -> ParsedEmail:
         subject = subject or ""
         body = body_text(html, text)
