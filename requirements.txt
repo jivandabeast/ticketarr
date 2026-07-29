@@ -6,3 +6,8 @@ PyYAML>=6.0
 IMAPClient>=3.0
 beautifulsoup4>=4.12
 python-dateutil>=2.9
+# Regal ticket OCR (parsers/regal.py); soft-imported, so absence just
+# disables OCR fallback rather than crashing. Kept as a hard dep here
+# so the docker image ships with OCR working out of the box.
+pytesseract>=0.3
+Pillow>=10.0

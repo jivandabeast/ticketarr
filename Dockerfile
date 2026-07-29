@@ -12,6 +12,16 @@ RUN adduser --disabled-password --gecos "" --uid 1000 ticketarr \
  && mkdir -p /config \
  && chown -R ticketarr:ticketarr /config
 
+# tesseract-ocr powers the Regal ticket OCR in parsers/regal.py.
+# On Debian slim the eng traineddata is pulled in as a Recommends of
+# tesseract-ocr, but we install it explicitly to survive
+# --no-install-recommends changes in future base images.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+        tesseract-ocr \
+        tesseract-ocr-eng \
+ && rm -rf /var/lib/apt/lists/*
+
 COPY requirements.txt ./
 RUN pip install -r requirements.txt
 

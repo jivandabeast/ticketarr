@@ -26,6 +26,13 @@ dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
 ]
+# Regal ticket OCR. Also requires the system `tesseract` binary to be
+# on PATH (or pointed at via TESSERACT_CMD). The docker image installs
+# these unconditionally; local users can `pip install ticketarr[ocr]`.
+ocr = [
+    "pytesseract>=0.3",
+    "Pillow>=10.0",
+]
 
 [project.scripts]
 ticketarr = "ticketarr.__main__:main"
