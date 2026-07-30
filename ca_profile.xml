@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CommunityApplications>
+  <Profile>
+ticketarr is a headless service that watches an email inbox for AMC A-List
+and Regal Unlimited movie ticket confirmations, resolves each showing to a
+TMDB id, and reports the watch to your tracker of choice (Trakt, Ryot, or
+Yamtrack) with the correct timestamp. It can also request the movie in
+Jellyseerr/Overseerr or Ombi so it's ready to stream by the time you get
+home from the theater.
+
+There is no web UI - the container only exposes a private `/healthz` port
+for Docker healthchecks. All configuration lives in `/config/config.yml`
+(or environment variables). See the project page for the full setup guide.
+
+Support: GitHub Issues on the project repo below.
+  </Profile>
+  <Icon>https://raw.githubusercontent.com/jivandabeast/ticketarr/main/icon.svg</Icon>
+  <WebPage>https://github.com/jivandabeast/ticketarr</WebPage>
+</CommunityApplications>

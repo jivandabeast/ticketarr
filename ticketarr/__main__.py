@@ -4,14 +4,48 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import shutil
 import signal
 import sys
+from pathlib import Path
 
 from pydantic import ValidationError
 
 from .app import Application
 from .config import load_config
 from .logging_setup import configure_logging
+
+
+def _seed_sample_config(log: logging.Logger) -> None:
+    """On first run inside a container, drop a `config.yml.sample` into
+    the mounted /config volume so Unraid / bind-mount users get a
+    ready-to-copy starter file next to their state.json.
+
+    Never overwrites an existing sample or config. Silently no-ops when
+    the source example isn't shipped (dev checkouts without the docker
+    layer) or the destination directory isn't writable.
+    """
+    config_dir = Path("/config")
+    if not config_dir.is_dir():
+        return  # not running inside our container layout; skip.
+
+    sample_dest = config_dir / "config.yml.sample"
+    if sample_dest.exists() or (config_dir / "config.yml").exists():
+        return  # already seeded or user already wrote their own config.
+
+    # The Dockerfile copies config.example.yml into /app/.
+    for candidate in (Path("/app/config.example.yml"), Path(__file__).resolve().parent.parent / "config.example.yml"):
+        if candidate.is_file():
+            try:
+                shutil.copyfile(candidate, sample_dest)
+                log.info(
+                    "Seeded %s from bundled example. Copy it to config.yml and edit "
+                    "to configure via file instead of environment variables.",
+                    sample_dest,
+                )
+            except OSError as exc:
+                log.debug("Could not seed %s: %s", sample_dest, exc)
+            return
 
 
 def _format_config_error(exc: ValidationError) -> str:
@@ -44,6 +78,8 @@ def _format_config_error(exc: ValidationError) -> str:
 def main() -> None:
     configure_logging()
     log = logging.getLogger("ticketarr")
+
+    _seed_sample_config(log)
 
     try:
         cfg = load_config()

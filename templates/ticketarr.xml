@@ -1,0 +1,340 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Container version="2">
+  <Name>ticketarr</Name>
+  <Repository>jivandabeast/ticketarr:latest</Repository>
+  <Registry>https://hub.docker.com/r/jivandabeast/ticketarr</Registry>
+  <Network>bridge</Network>
+  <Shell>bash</Shell>
+  <Privileged>false</Privileged>
+
+  <Icon>https://raw.githubusercontent.com/jivandabeast/ticketarr/main/icon.svg</Icon>
+
+  <Overview>Watches an email inbox for AMC A-List and Regal Unlimited movie ticket confirmations, resolves the movie on TMDB, then scrobbles it to your tracker (Trakt, Ryot, or Yamtrack) with the correct showtime and (optionally) requests it in Jellyseerr/Overseerr or Ombi. Headless - no WebUI, only a private /healthz endpoint for Docker healthchecks.</Overview>
+
+  <Support>https://github.com/jivandabeast/ticketarr/issues</Support>
+  <Project>https://github.com/jivandabeast/ticketarr</Project>
+  <TemplateURL>https://raw.githubusercontent.com/jivandabeast/ticketarr/main/templates/ticketarr.xml</TemplateURL>
+  <ReadMe>https://raw.githubusercontent.com/jivandabeast/ticketarr/main/README.md</ReadMe>
+
+  <Category>Tools:Utilities MediaApp:Other</Category>
+  <ExtraSearchTerms>trakt ryot yamtrack jellyseerr overseerr ombi amc regal movies scrobble</ExtraSearchTerms>
+
+  <Requires>An IMAP mailbox that receives your AMC A-List / Regal Unlimited confirmations, and a TMDB API key. See the README for tracker + requester setup.</Requires>
+
+  <License>GPLv3</License>
+
+  <Date>2026-07-30</Date>
+  <Changes>Initial Unraid Community Apps release.</Changes>
+
+  <MinVer>6.11</MinVer>
+
+  <Description>
+[b]ticketarr[/b] is a headless service that turns AMC A-List and Regal Unlimited ticket confirmations into real, timestamped entries in your watch tracker.
+
+[b]Two ways to configure - pick one:[/b]
+1. [b]Environment variables[/b] (the fields on this template). Fill in IMAP + TMDB + your chosen tracker/requester below and click Apply.
+2. [b]YAML file[/b]. Leave every field on this template blank, click Apply, then look in `/mnt/user/appdata/ticketarr/` for the `config.yml.sample` that ticketarr drops on first run. Copy it to `config.yml`, edit it, and restart the container.
+
+If both are used, environment variables win (empty env-var fields are treated as "not set"). None of the template fields are marked strictly required because either path is valid - but the container will refuse to start and print a clear error if IMAP host/username/password or a TMDB credential is missing from both.
+
+[b]How it works[/b]
+1. Polls the configured IMAP mailbox for messages from AMC (AMCTheatres@amctheatres.com) or Regal (no-reply@regmovies.com).
+2. Parses the reservation or cancellation and extracts the movie title + showtime. For Regal, the true showtime is OCR'd from the inline ticket JPEG (Tesseract is bundled in the image).
+3. Resolves the movie to a TMDB id.
+4. Scrobbles the movie to your chosen tracker with the actual showtime as the watched-at timestamp.
+5. Optionally files a request in Jellyseerr/Overseerr or Ombi so the movie is ready in your library by the time you get home.
+
+Cancellations undo the scrobble; the JSON state file at /config/state.json maps each order number to the scrobble it created so cancellations after a restart still work.
+
+[b]Supported trackers[/b]: Trakt, Ryot, Yamtrack (via its internal /media_save form - see the AGENTS.md file on GitHub for why).
+[b]Supported requesters[/b]: Jellyseerr, Overseerr, Ombi.
+
+[b]No WebUI.[/b] All configuration is done via /config/config.yml or environment variables. Full example configs are in the project repository.
+  </Description>
+
+  <!-- =================================================================
+       Volumes
+       ================================================================= -->
+  <Config Name="Appdata"
+          Target="/config"
+          Default="/mnt/user/appdata/ticketarr"
+          Mode="rw"
+          Description="Persistent state (state.json), cached Trakt OAuth token, and optional config.yml. On first run ticketarr drops a `config.yml.sample` here - copy it to `config.yml` if you'd rather configure via YAML than environment variables. Must be writable by the container."
+          Type="Path"
+          Display="always"
+          Required="true"
+          Mask="false"/>
+
+  <!-- =================================================================
+       Healthcheck port (kept advanced - most users never need to expose it)
+       ================================================================= -->
+  <Config Name="Healthcheck"
+          Target="8765"
+          Default="8765"
+          Mode="tcp"
+          Description="Private HTTP port that serves /healthz for Docker/Unraid healthchecks. Only exposed to the Docker network; no WebUI is served here."
+          Type="Port"
+          Display="advanced"
+          Required="false"
+          Mask="false"/>
+
+  <!-- =================================================================
+       IMAP - required
+       ================================================================= -->
+  <Config Name="IMAP_HOST"
+          Target="IMAP_HOST"
+          Default=""
+          Description="IMAP server hostname (e.g. imap.gmail.com, outlook.office365.com). Required unless set in /config/config.yml."
+          Type="Variable"
+          Display="always"
+          Required="false"
+          Mask="false"/>
+  <Config Name="IMAP_PORT"
+          Target="IMAP_PORT"
+          Default="993"
+          Description="IMAP TLS port. Defaults to 993 (implicit TLS)."
+          Type="Variable"
+          Display="advanced"
+          Required="false"
+          Mask="false"/>
+  <Config Name="IMAP_USERNAME"
+          Target="IMAP_USERNAME"
+          Default=""
+          Description="IMAP account username (usually your email address). Required unless set in /config/config.yml."
+          Type="Variable"
+          Display="always"
+          Required="false"
+          Mask="false"/>
+  <Config Name="IMAP_PASSWORD"
+          Target="IMAP_PASSWORD"
+          Default=""
+          Description="IMAP account password. For Gmail/Google Workspace you MUST use an App Password, not your real password. Required unless set in /config/config.yml."
+          Type="Variable"
+          Display="always"
+          Required="false"
+          Mask="true"/>
+  <Config Name="IMAP_MAILBOX"
+          Target="IMAP_MAILBOX"
+          Default="INBOX"
+          Description="Mailbox to poll."
+          Type="Variable"
+          Display="advanced"
+          Required="false"
+          Mask="false"/>
+  <Config Name="IMAP_SSL"
+          Target="IMAP_SSL"
+          Default="true"
+          Description="Use implicit TLS on the IMAP connection."
+          Type="Variable"
+          Display="advanced"
+          Required="false"
+          Mask="false"/>
+  <Config Name="IMAP_SENDER_FILTERS"
+          Target="IMAP_SENDER_FILTERS"
+          Default=""
+          Description="Comma-separated list of From-addresses to poll. Leave empty to use every registered parser's default senders (AMC + Regal). Set to override, e.g. to add a friend who forwards you tickets."
+          Type="Variable"
+          Display="advanced"
+          Required="false"
+          Mask="false"/>
+  <Config Name="IMAP_INITIAL_LOOKBACK_DAYS"
+          Target="IMAP_INITIAL_LOOKBACK_DAYS"
+          Default="7"
+          Description="On first run, skip messages older than this many days. 0 = process every message in the inbox."
+          Type="Variable"
+          Display="advanced"
+          Required="false"
+          Mask="false"/>
+  <Config Name="IMAP_POLL_INTERVAL_SECONDS"
+          Target="IMAP_POLL_INTERVAL_SECONDS"
+          Default="120"
+          Description="Fallback polling interval when the server doesn't support IMAP IDLE."
+          Type="Variable"
+          Display="advanced"
+          Required="false"
+          Mask="false"/>
+  <Config Name="IMAP_MARK_SEEN"
+          Target="IMAP_MARK_SEEN"
+          Default="true"
+          Description="Mark processed messages as seen. Set false if you want them to stay unread."
+          Type="Variable"
+          Display="advanced"
+          Required="false"
+          Mask="false"/>
+
+  <!-- =================================================================
+       TMDB - required (one of api_key or bearer_token)
+       ================================================================= -->
+  <Config Name="TMDB_API_KEY"
+          Target="TMDB_API_KEY"
+          Default=""
+          Description="TMDB v3 API key. Free - request at https://www.themoviedb.org/settings/api. Either this OR TMDB_BEARER_TOKEN is required (or set one of them in /config/config.yml)."
+          Type="Variable"
+          Display="always"
+          Required="false"
+          Mask="true"/>
+  <Config Name="TMDB_BEARER_TOKEN"
+          Target="TMDB_BEARER_TOKEN"
+          Default=""
+          Description="TMDB v4 read access token (Bearer). Optional alternative to TMDB_API_KEY."
+          Type="Variable"
+          Display="advanced"
+          Required="false"
+          Mask="true"/>
+
+  <!-- =================================================================
+       Tracker + requester selection
+       ================================================================= -->
+  <Config Name="TRACKER_PROVIDER"
+          Target="TRACKER_PROVIDER"
+          Default=""
+          Description="Which watch tracker to scrobble to. One of: none, trakt, ryot, yamtrack. Leave blank to inherit the value from /config/config.yml (defaults to `none` when unset). See the matching credential variables below."
+          Type="Variable"
+          Display="always"
+          Required="false"
+          Mask="false"/>
+  <Config Name="REQUESTER_PROVIDER"
+          Target="REQUESTER_PROVIDER"
+          Default=""
+          Description="Where to request the movie so it's available in your library. One of: none, seerr, ombi. Leave blank to inherit from /config/config.yml."
+          Type="Variable"
+          Display="always"
+          Required="false"
+          Mask="false"/>
+
+  <!-- =================================================================
+       Trakt (only when TRACKER_PROVIDER=trakt)
+       ================================================================= -->
+  <Config Name="TRAKT_CLIENT_ID"
+          Target="TRAKT_CLIENT_ID"
+          Default=""
+          Description="Trakt application Client ID. Create a free app at https://trakt.tv/oauth/applications - Redirect URI must be `urn:ietf:wg:oauth:2.0:oob`. Required only when TRACKER_PROVIDER=trakt."
+          Type="Variable"
+          Display="advanced"
+          Required="false"
+          Mask="true"/>
+  <Config Name="TRAKT_CLIENT_SECRET"
+          Target="TRAKT_CLIENT_SECRET"
+          Default=""
+          Description="Trakt application Client Secret. Required only when TRACKER_PROVIDER=trakt."
+          Type="Variable"
+          Display="advanced"
+          Required="false"
+          Mask="true"/>
+
+  <!-- =================================================================
+       Ryot (only when TRACKER_PROVIDER=ryot)
+       ================================================================= -->
+  <Config Name="RYOT_BASE_URL"
+          Target="RYOT_BASE_URL"
+          Default=""
+          Description="Base URL of your Ryot instance (e.g. http://ryot:8000). Required only when TRACKER_PROVIDER=ryot, and only if not set in /config/config.yml."
+          Type="Variable"
+          Display="advanced"
+          Required="false"
+          Mask="false"/>
+  <Config Name="RYOT_API_KEY"
+          Target="RYOT_API_KEY"
+          Default=""
+          Description="Ryot API key. Required only when TRACKER_PROVIDER=ryot."
+          Type="Variable"
+          Display="advanced"
+          Required="false"
+          Mask="true"/>
+
+  <!-- =================================================================
+       Yamtrack (only when TRACKER_PROVIDER=yamtrack)
+       ================================================================= -->
+  <Config Name="YAMTRACK_BASE_URL"
+          Target="YAMTRACK_BASE_URL"
+          Default=""
+          Description="Base URL of your Yamtrack instance (e.g. http://yamtrack:8000). Required only when TRACKER_PROVIDER=yamtrack, and only if not set in /config/config.yml."
+          Type="Variable"
+          Display="advanced"
+          Required="false"
+          Mask="false"/>
+  <Config Name="YAMTRACK_USERNAME"
+          Target="YAMTRACK_USERNAME"
+          Default=""
+          Description="Yamtrack web-UI username. ticketarr drives Yamtrack's internal /media_save form (no REST API supports backdated watched-at). Required only when TRACKER_PROVIDER=yamtrack."
+          Type="Variable"
+          Display="advanced"
+          Required="false"
+          Mask="false"/>
+  <Config Name="YAMTRACK_PASSWORD"
+          Target="YAMTRACK_PASSWORD"
+          Default=""
+          Description="Yamtrack web-UI password. Required only when TRACKER_PROVIDER=yamtrack."
+          Type="Variable"
+          Display="advanced"
+          Required="false"
+          Mask="true"/>
+
+  <!-- =================================================================
+       Jellyseerr / Overseerr (only when REQUESTER_PROVIDER=seerr)
+       ================================================================= -->
+  <Config Name="SEERR_BASE_URL"
+          Target="SEERR_BASE_URL"
+          Default=""
+          Description="Base URL of your Jellyseerr or Overseerr instance (e.g. http://jellyseerr:5055). Required only when REQUESTER_PROVIDER=seerr, and only if not set in /config/config.yml."
+          Type="Variable"
+          Display="advanced"
+          Required="false"
+          Mask="false"/>
+  <Config Name="SEERR_API_KEY"
+          Target="SEERR_API_KEY"
+          Default=""
+          Description="Jellyseerr/Overseerr API key. Required only when REQUESTER_PROVIDER=seerr."
+          Type="Variable"
+          Display="advanced"
+          Required="false"
+          Mask="true"/>
+  <Config Name="SEERR_REQUEST_4K"
+          Target="SEERR_REQUEST_4K"
+          Default="false"
+          Description="Set true to file 4K requests instead of standard quality."
+          Type="Variable"
+          Display="advanced"
+          Required="false"
+          Mask="false"/>
+
+  <!-- =================================================================
+       Ombi (only when REQUESTER_PROVIDER=ombi)
+       ================================================================= -->
+  <Config Name="OMBI_BASE_URL"
+          Target="OMBI_BASE_URL"
+          Default=""
+          Description="Base URL of your Ombi instance (e.g. http://ombi:3579). Required only when REQUESTER_PROVIDER=ombi, and only if not set in /config/config.yml."
+          Type="Variable"
+          Display="advanced"
+          Required="false"
+          Mask="false"/>
+  <Config Name="OMBI_API_KEY"
+          Target="OMBI_API_KEY"
+          Default=""
+          Description="Ombi API key. Required only when REQUESTER_PROVIDER=ombi."
+          Type="Variable"
+          Display="advanced"
+          Required="false"
+          Mask="true"/>
+  <Config Name="OMBI_LANGUAGE_CODE"
+          Target="OMBI_LANGUAGE_CODE"
+          Default="en"
+          Description="ISO 639-1 language code sent with Ombi requests."
+          Type="Variable"
+          Display="advanced"
+          Required="false"
+          Mask="false"/>
+
+  <!-- =================================================================
+       Misc
+       ================================================================= -->
+  <Config Name="TICKETARR_LOG_LEVEL"
+          Target="TICKETARR_LOG_LEVEL"
+          Default="INFO"
+          Description="Python logging level (DEBUG, INFO, WARNING, ERROR)."
+          Type="Variable"
+          Display="advanced"
+          Required="false"
+          Mask="false"/>
+</Container>

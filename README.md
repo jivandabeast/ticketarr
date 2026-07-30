@@ -1,5 +1,9 @@
 # ticketarr
 
+<p align="center">
+  <img src="./icon.svg" alt="ticketarr" width="160" height="160">
+</p>
+
 A tiny, headless Python service that watches an email inbox for AMC A-List
 and Regal Unlimited reservation / cancellation emails and mirrors them to
 your movie tracker (Trakt, Ryot, or Yamtrack). Optionally submits a request
@@ -20,9 +24,10 @@ No UI. No public endpoints. Just a docker-native background worker.
      `noreply@regaltickets.com` (refunds)
 2. Classify each message (reservation / cancellation / other).
 3. Parse the movie title, theater, showtime, and order/booking number.
-   (Regal reservation emails encode the theater + showtime inside an
-   inline JPEG, so ticketarr uses the subject-line title + booking code
-   and falls back to email-received time as the watched-at timestamp.)
+   Regal reservation emails encode the real theater + showtime inside an
+   inline JPEG, so ticketarr OCRs the ticket with Tesseract (bundled in
+   the Docker image) and falls back to email-received time only when
+   OCR fails.
 4. Resolve the movie to a TMDB id.
 5. Report the movie to the configured tracker with the showtime as the
    watched-at timestamp. On a cancellation, remove the corresponding history
@@ -51,6 +56,52 @@ docker compose logs -f ticketarr
 ```
 
 The healthcheck endpoint listens on `http://127.0.0.1:8765/healthz`.
+
+## Unraid (Community Apps)
+
+ticketarr ships with a Community Apps template
+([`templates/ticketarr.xml`](./templates/ticketarr.xml)) and a matching
+[`ca_profile.xml`](./ca_profile.xml) so it can be installed directly from
+the Apps tab.
+
+### Two ways to configure — pick one
+
+1. **Environment variables.** Fill in the IMAP + TMDB + tracker/requester
+   fields on the template and click Apply. Every knob has a matching env
+   var; see the template descriptions.
+2. **YAML file.** Leave every field on the template blank, click Apply,
+   then look in `/mnt/user/appdata/ticketarr/` for the `config.yml.sample`
+   that ticketarr drops on first run. Copy it to `config.yml`, edit it,
+   and restart the container.
+
+If both are used, environment variables win. Empty env-var fields are
+treated as "not set" (they do **not** clobber a real value in
+`config.yml`), so you can safely leave anything you don't care about
+blank on the template.
+
+None of the template fields are marked strictly required because either
+path is valid — but the container will refuse to start and print a clear
+error listing the missing keys if IMAP host/username/password or a TMDB
+credential is missing from **both** sources.
+
+### First-run checklist
+
+1. Install ticketarr from Community Apps (or point the CA "Install
+   template from URL" dialog at
+   `https://raw.githubusercontent.com/jivandabeast/ticketarr/main/templates/ticketarr.xml`).
+2. Set the **Appdata** path (default `/mnt/user/appdata/ticketarr`).
+3. Either fill in the env-var fields _or_ start the container, then edit
+   `/mnt/user/appdata/ticketarr/config.yml` (copied from `.sample`).
+4. Check the container log — you should see `Loaded configuration
+(source=…)` followed by each integration's `startup ok` line.
+5. If you selected Trakt as the tracker, the log will print a
+   `https://trakt.tv/activate` URL and a one-time code — visit it in a
+   browser to complete the OAuth device flow. The token is cached in
+   `/config/trakt_token.json` and reused on every restart.
+
+The healthcheck endpoint is on the container's private network at
+`http://<container>:8765/healthz`. There is no WebUI — clicking the
+container's icon in Unraid will not open anything useful.
 
 ## Configuration
 
@@ -117,13 +168,13 @@ and reused on subsequent runs.
 
 ### Provider notes
 
-| Provider               | Auth                                          | Notes                                                                                                                        |
-| ---------------------- | --------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| Trakt.tv               | OAuth (device flow), needs client id + secret | Full watched/unwatched support with showtime timestamp                                                                       |
-| Ryot                   | Long-lived API token                          | GraphQL against `/backend/graphql`; scrobbles via `deployBulkMetadataProgressUpdate`                                         |
+| Provider               | Auth                                          | Notes                                                                                                                                                                                                                                                                               |
+| ---------------------- | --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Trakt.tv               | OAuth (device flow), needs client id + secret | Full watched/unwatched support with showtime timestamp                                                                                                                                                                                                                              |
+| Ryot                   | Long-lived API token                          | GraphQL against `/backend/graphql`; scrobbles via `deployBulkMetadataProgressUpdate`                                                                                                                                                                                                |
 | Yamtrack               | Web-UI username + password                    | Drives the internal `/media_save` Django form (Yamtrack has no REST API for setting a specific watched-at). `end_date` = `start_date + TMDB runtime` (fallback 120 min). Always-creates a new row per showing so rewatches are preserved. Contract is unofficial — see `AGENTS.md`. |
-| Jellyseerr / Overseerr | `X-Api-Key` header                            | `POST /api/v1/request` with `{"mediaType":"movie","mediaId":<tmdb>, "is4k": <bool>}` (opt-in via `seerr.request_4k`)         |
-| Ombi                   | `ApiKey` header                               | Prefers `POST /api/v2/Requests/movie`; falls back to `/api/v1/Request/movie`                                                 |
+| Jellyseerr / Overseerr | `X-Api-Key` header                            | `POST /api/v1/request` with `{"mediaType":"movie","mediaId":<tmdb>, "is4k": <bool>}` (opt-in via `seerr.request_4k`)                                                                                                                                                                |
+| Ombi                   | `ApiKey` header                               | Prefers `POST /api/v2/Requests/movie`; falls back to `/api/v1/Request/movie`                                                                                                                                                                                                        |
 
 ## Repository layout
 
@@ -152,6 +203,9 @@ Dockerfile
 docker-compose.yml
 config.example.yml
 .env.example
+templates/ticketarr.xml         Unraid Community Apps template
+ca_profile.xml                  Unraid CA repository profile
+icon.svg                        used by CA and the README
 ```
 
 ## Attribution

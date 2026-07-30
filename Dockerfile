@@ -27,6 +27,7 @@ RUN pip install -r requirements.txt
 
 COPY pyproject.toml ./
 COPY ticketarr ./ticketarr
+COPY config.example.yml ./config.example.yml
 RUN pip install --no-deps .
 
 USER ticketarr
