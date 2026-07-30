@@ -2,11 +2,17 @@
 
 Docs: https://docs.ombi.app/
 
-POST {base}/api/v2/Requests/movie
-Headers: ApiKey: <key>
-Body:    {"theMovieDbId": <tmdb_id>, "languageCode": "en"}
+Movie request endpoint:
+    POST {base}/api/v1/Request/movie
+    Headers: ApiKey: <key>
+    Body:    {"theMovieDbId": <tmdb_id>, "languageCode": "en"}
 
-Falls back to /api/v1/Request/movie on 404 for older installs.
+Note: Ombi's V2 `RequestsController` (routed at /api/v2/Requests) does NOT
+expose `POST movie` — only GET routes plus `POST tv` and a couple of movie
+sub-routes (`movie/advancedoptions`, `movie/collection/{id}`). Requesting a
+movie is a V1 concern. Older docs and third-party scripts sometimes call
+`/api/v2/Requests/movie`; that lands on ASP.NET Core's SPA fallback and
+returns HTTP 500 with an "index.html not found" message.
 """
 
 from __future__ import annotations
@@ -50,24 +56,29 @@ class OmbiClient:
 
     async def request_movie(self, tmdb_id: int, title: str) -> bool:
         body = {"theMovieDbId": tmdb_id, "languageCode": self._language}
-        for path in ("/api/v2/Requests/movie", "/api/v1/Request/movie"):
-            try:
-                resp = await self._http.post(self._base + path, json=body)
-            except httpx.HTTPError as exc:
-                log.error("Ombi request failed at %s for %s: %s", path, title, exc)
-                return False
-            if resp.status_code == 404:
-                continue  # try older path
-            if resp.status_code in (200, 201, 202):
-                log.info("Ombi: requested %s (tmdb=%s, path=%s)", title, tmdb_id, path)
-                return True
+        path = "/api/v1/Request/movie"
+        try:
+            resp = await self._http.post(self._base + path, json=body)
+        except httpx.HTTPError as exc:
+            log.error("Ombi request failed at %s for %s: %s", path, title, exc)
+            return False
+        if resp.status_code in (200, 201, 202):
+            log.info("Ombi: requested %s (tmdb=%s)", title, tmdb_id)
+            return True
+        # A 500 with the SPA-fallback body means the URL didn't match any
+        # controller on this Ombi server — usually because OMBI_BASE_URL is
+        # wrong (missing reverse-proxy subpath, pointing at the wrong host,
+        # etc). Surface that plainly.
+        if resp.status_code == 500 and "SPA default page middleware" in resp.text:
             log.error(
-                "Ombi request failed for %s at %s: %s %s",
-                title,
-                path,
-                resp.status_code,
-                resp.text,
+                "Ombi request for %s hit the SPA fallback at %s%s (HTTP 500). "
+                "This usually means ombi.base_url does not point at the Ombi "
+                "API (check for a missing reverse-proxy subpath).",
+                title, self._base, path,
             )
             return False
-        log.error("Ombi: no compatible endpoint found for %s", title)
+        log.error(
+            "Ombi request failed for %s at %s: %s %s",
+            title, path, resp.status_code, resp.text[:300],
+        )
         return False

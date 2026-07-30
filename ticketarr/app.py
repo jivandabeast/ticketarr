@@ -39,9 +39,20 @@ def _build_tracker(cfg: Config) -> Optional[Tracker]:
     if provider == "ryot":
         from .integrations.ryot import RyotClient
 
-        if not (cfg.ryot.base_url and cfg.ryot.api_key):
-            raise RuntimeError("Ryot selected but base_url/api_key missing")
-        return RyotClient(base_url=cfg.ryot.base_url, api_key=cfg.ryot.api_key)
+        if not cfg.ryot.base_url:
+            raise RuntimeError("Ryot selected but base_url missing")
+        if not (cfg.ryot.api_key or (cfg.ryot.username and cfg.ryot.password)):
+            raise RuntimeError(
+                "Ryot selected but no credentials given: set either "
+                "ryot.username + ryot.password, or ryot.api_key"
+            )
+        return RyotClient(
+            base_url=cfg.ryot.base_url,
+            api_key=cfg.ryot.api_key,
+            username=cfg.ryot.username,
+            password=cfg.ryot.password,
+            default_runtime_minutes=cfg.ryot.default_runtime_minutes,
+        )
     if provider == "yamtrack":
         from .integrations.yamtrack import YamtrackClient
 
@@ -287,11 +298,12 @@ class Application:
         watched_at = parsed.showtime
         tracker_ids: dict[str, str] = {}
         if self.tracker is not None:
-            # Yamtrack needs the movie's runtime to set end_date; other
-            # trackers ignore it. Only pay for the extra TMDB call when
-            # the runtime will actually be used.
+            # Yamtrack and Ryot both use the movie's runtime to compute an
+            # end/finished-on timestamp. Trakt does not care about duration.
+            # Only pay for the extra TMDB call when the tracker will actually
+            # use it.
             scrobble_kwargs: dict[str, object] = {}
-            if self.cfg.tracker.provider == "yamtrack":
+            if self.cfg.tracker.provider in ("yamtrack", "ryot"):
                 runtime = await self.tmdb.get_runtime(movie.tmdb_id)
                 if runtime is not None:
                     scrobble_kwargs["runtime_minutes"] = runtime

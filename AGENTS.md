@@ -34,8 +34,9 @@ by an `async startup()` method on the integration client:
 - **TMDB** (`tmdb.TMDBClient.startup`) — `GET /3/configuration`.
 - **Trakt** (`integrations.trakt.TraktClient.startup`) — runs the device
   code flow if no token is cached; refreshes if expired.
-- **Ryot** (`integrations.ryot.RyotClient.startup`) — authenticated
-  `userDetails` GraphQL query.
+- **Ryot** (`integrations.ryot.RyotClient.startup`) — runs the
+  `loginUser` mutation (when username+password are configured) and then
+  verifies with a `userDetails` GraphQL query.
 - **Yamtrack** (`integrations.yamtrack.YamtrackClient.startup`) —
   logs into `/accounts/login/` and verifies the resulting session
   by fetching the home page.
@@ -76,7 +77,7 @@ ticketarr/integrations/
   ryot.py                    GraphQL: metadataSearch + deployBulkMetadataProgressUpdate
   yamtrack.py                Jellyfin-style webhook receiver
   seerr.py                   Jellyseerr/Overseerr /api/v1/request
-  ombi.py                    Ombi /api/v2/Requests/movie (fallback to v1)
+  ombi.py                    Ombi /api/v1/Request/movie
 ```
 
 ## Data flow
@@ -112,11 +113,42 @@ a restart will lose their link to the original scrobble.
     `Authorization: Bearer <access_token>`
 - **Ryot** — https://docs.ryot.io + GraphQL schema at
   `libs/graphql/src/backend/{queries,mutations}/combined.gql`
-  - `POST {base}/backend/graphql`, `Authorization: Bearer <apiKey>`
-  - Search: `metadataSearch(input: {lot: MOVIE, source: TMDB, search:{query, page, take}})`
+  - `POST {base}/backend/graphql`
+  - Auth is a **session token**, not a static "API key". The extractor
+    (`crates/utils/application/src/lib.rs::AuthContext::from_request_parts`)
+    accepts either `Authorization: Bearer <session>` or
+    `x-auth-token: <session>` and resolves it via
+    `session_service::validate_session`. Without a valid session,
+    resolvers throw `NO_USER_ID`.
+  - Login: `loginUser(input: {username, password})` mutation returns
+    `ApiKeyResponse{apiKey}` where `apiKey` **is** the session token to
+    use as the Bearer for all subsequent requests
+    (`crates/services/user/src/authentication_operations.rs::login_user`).
+    Handle the `LoginError` and `StringIdObject` (2FA) union branches
+    with clear messages.
+  - Verify at startup with `userDetails { ... on UserDetails { id } ... on UserDetailsError { error } }` — do **not** just ask for `__typename`;
+    the error branch has to be inspected explicitly.
+  - Search: `metadataSearch(input: {lot: MOVIE, source: TMDB, search:{query, page, take}})`.
+    Ryot's resolver forwards the query to its **own** TMDB provider, which
+    reads `MOVIES_AND_SHOWS_TMDB_ACCESS_TOKEN` (a TMDB v4 read token) from
+    the Ryot container's environment — this is **separate from ticketarr's
+    `tmdb.api_key`**. When Ryot's TMDB token is missing/invalid, the resolver
+    swallows the concrete error via `trace_ok()`
+    (`crates/services/miscellaneous/search/src/lib.rs`) and returns the
+    generic `"Failed to search metadata"`. `RyotClient._find_metadata_id`
+    logs an actionable hint pointing at this env var so operators aren't
+    left guessing.
   - Scrobble: `deployBulkMetadataProgressUpdate([{metadataId,
-change:{createNewCompleted:{finishedOnDate:{timestamp}}}}])`
+change:{createNewCompleted:{startedAndFinishedOnDate:{startedOn,timestamp}}}}])`.
+    `startedOn` is the showtime, `timestamp` is `startedOn + TMDB runtime`
+    (falling back to `ryot.default_runtime_minutes`, 120 min by default) —
+    same start/end logic Yamtrack uses so both trackers show the movie
+    filling its real slot rather than a point event.
   - Remove: `deleteSeenItem(seenId)` after reading `userMetadataDetails.history[].id`
+  - `ryot.api_key` in ticketarr's config is kept as an advanced fallback
+    for users who prefer a pre-issued session token (e.g. from
+    `processAccessLink`). Most users should set `ryot.username` +
+    `ryot.password` and let ticketarr log in at startup.
 - **Yamtrack** — **no official REST API** for creating watched-movie
   entries with a specific timestamp. The Jellyfin webhook path exists
   but overrides `watched_at` with `timezone.now()` server-side, so
@@ -154,9 +186,18 @@ change:{createNewCompleted:{finishedOnDate:{timestamp}}}}])`
     `X-Api-Key: <key>`. The `is4k` field is optional (defaults to false);
     ticketarr sends it only when `seerr.request_4k` is true.
 - **Ombi** — https://docs.ombi.app/
-  - `POST /api/v2/Requests/movie` with `{"theMovieDbId":<tmdb>}`, header
+  - `POST /api/v1/Request/movie` with `{"theMovieDbId":<tmdb>}`, header
     `ApiKey: <key>` (note the header name is literally `ApiKey`, not
-    `X-Api-Key`). Older installs use `POST /api/v1/Request/movie`.
+    `X-Api-Key`).
+  - Ombi's V2 `RequestsController`
+    (`src/Ombi/Controllers/V2/RequestsController.cs`) does **not** expose
+    `POST movie` — only `POST movie/advancedoptions` and
+    `POST movie/collection/{id}`. A `POST /api/v2/Requests/movie` lands
+    on ASP.NET Core's SPA-fallback middleware and returns HTTP 500 with a
+    body about "The SPA default page middleware could not return the
+    default page '/index.html'". If that specific 500 body is seen, log
+    an actionable error pointing at `ombi.base_url` misconfiguration
+    (usually a missing reverse-proxy subpath).
 
 ## Parsers
 

@@ -72,7 +72,18 @@ class TraktConfig(BaseModel):
 class RyotConfig(BaseModel):
     enabled: bool = False
     base_url: Optional[str] = None  # e.g. http://ryot:8000 or https://app.ryot.io
+    # Preferred: username + password. ticketarr will call `loginUser` at
+    # startup to obtain a session token. This is what Ryot's own web UI does.
+    username: Optional[str] = None
+    password: Optional[str] = None
+    # Advanced: a long-lived access-link token (`processAccessLink.apiKey`
+    # from Ryot). Used verbatim as the Bearer token. If both are set,
+    # username/password wins (it produces a fresh session on each restart).
     api_key: Optional[str] = None
+    # Fallback duration (minutes) when TMDB doesn't report a runtime for the
+    # movie. Mirrors Yamtrack so a scrobble always carries a plausible
+    # finished-on timestamp instead of collapsing start == end.
+    default_runtime_minutes: int = 120
 
 
 class YamtrackConfig(BaseModel):
@@ -233,7 +244,10 @@ def _apply_env_overrides(data: dict[str, Any]) -> dict[str, Any]:
     # Ryot
     _set("ryot", "enabled", _env_bool("RYOT_ENABLED"))
     _set("ryot", "base_url", _env("RYOT_BASE_URL"))
+    _set("ryot", "username", _env("RYOT_USERNAME"))
+    _set("ryot", "password", _env("RYOT_PASSWORD"))
     _set("ryot", "api_key", _env("RYOT_API_KEY"))
+    _set("ryot", "default_runtime_minutes", _env_int("RYOT_DEFAULT_RUNTIME_MINUTES"))
 
     # Yamtrack
     _set("yamtrack", "enabled", _env_bool("YAMTRACK_ENABLED"))

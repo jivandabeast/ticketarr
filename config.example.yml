@@ -43,7 +43,20 @@ trakt:
 
 ryot:
   base_url: http://ryot:8000
-  api_key: your-ryot-api-key
+  # Preferred: ticketarr calls Ryot's `loginUser` mutation at startup to
+  # obtain a session token (same as the web UI). Ryot rejects requests that
+  # don't carry a valid session token with `NO_USER_ID`, so simply pasting
+  # a "master" api key does NOT work — you need real credentials, or an
+  # access-link token issued via `processAccessLink`.
+  username: your-ryot-username
+  password: "your-ryot-password"
+  # Advanced: uncomment and set this if you've generated an access-link
+  # token instead of using username/password. Ignored when username +
+  # password are set.
+  # api_key: your-ryot-access-link-token
+  # Fallback duration when TMDB doesn't know the movie's runtime; the
+  # scrobble's finished-on timestamp is (showtime + this many minutes).
+  # default_runtime_minutes: 120
 
 yamtrack:
   base_url: http://yamtrack:8000
