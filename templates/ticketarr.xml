@@ -6,6 +6,11 @@
   <Network>bridge</Network>
   <Shell>bash</Shell>
   <Privileged>false</Privileged>
+  <!-- Run as the standard Unraid nobody:users (99:100) so the config
+       directory is writable and ticketarr can drop config.yml.sample on
+       first launch. Without this the container starts as root and the
+       sample file either doesn't appear or is created with wrong perms. -->
+  <ExtraParams>--user 99:100</ExtraParams>
 
   <Icon>https://raw.githubusercontent.com/jivandabeast/ticketarr/main/icon.svg</Icon>
 
