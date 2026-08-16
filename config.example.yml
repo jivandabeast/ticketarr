@@ -82,3 +82,9 @@ ombi:
 
 state_path: /config/state.json
 healthcheck_port: 8765
+# Trakt rejects any watched_at in the future, and marking movies as watched
+# before their showtime is semantically wrong on every tracker. So
+# reservations for future showtimes are queued and dispatched by a
+# periodic sweeper. Set to 0 to disable (the queue will still drain on
+# every restart).
+pending_scrobble_check_interval_seconds: 300

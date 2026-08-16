@@ -34,6 +34,15 @@ class OrderRecord:
     # instance_id as string). Kept generic so future trackers can add
     # their own opaque handles without another schema bump.
     tracker_ids: dict[str, str] = field(default_factory=dict)
+    # Whether the tracker.scrobble() call has already happened. Reservations
+    # for future showtimes are persisted with ``scrobbled=False`` and picked
+    # up by ``Application._flush_pending_scrobbles`` once ``watched_at`` is
+    # in the past — Trakt rejects future ``watched_at`` values outright, and
+    # Ryot/Yamtrack are semantically wrong to mark as "watched" before the
+    # showtime anyway. Default is True so legacy state.json files loaded
+    # from older ticketarr builds (which always scrobbled immediately) are
+    # not re-scrobbled after an upgrade.
+    scrobbled: bool = True
 
 
 @dataclass

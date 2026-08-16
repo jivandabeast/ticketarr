@@ -143,6 +143,16 @@ class Config(BaseModel):
     # State file used to dedupe processed emails across restarts.
     state_path: str = "/config/state.json"
 
+    # How often (seconds) the pending-scrobble sweeper wakes to look for
+    # reservations whose showtime has finally passed. Trakt rejects any
+    # ``watched_at`` that is in the future, and marking a movie "watched"
+    # before its showtime is semantically wrong on every tracker — so
+    # reservations for future shows are persisted with ``scrobbled=False``
+    # and dispatched by the sweeper. Setting this to 0 disables the sweeper
+    # (the scrobble will still happen next time an email arrives or the
+    # process restarts, thanks to the same on-boot sweep).
+    pending_scrobble_check_interval_seconds: int = 300
+
     # Whether to expose a /healthz endpoint (recommended for docker healthchecks).
     healthcheck_port: int = 8765
 
@@ -274,6 +284,8 @@ def _apply_env_overrides(data: dict[str, Any]) -> dict[str, Any]:
         _set_root["state_path"] = v
     if (v := _env_int("TICKETARR_HEALTHCHECK_PORT")) is not None:
         _set_root["healthcheck_port"] = v
+    if (v := _env_int("TICKETARR_PENDING_SCROBBLE_CHECK_INTERVAL_SECONDS")) is not None:
+        _set_root["pending_scrobble_check_interval_seconds"] = v
 
     return data
 

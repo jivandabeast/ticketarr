@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 import uvicorn
@@ -149,13 +149,14 @@ class Application:
 
     async def run(self) -> None:
         server_task = asyncio.create_task(self._run_healthcheck())
+        sweeper_task = asyncio.create_task(self._flush_pending_scrobbles_forever())
         try:
             await self._process_forever()
         finally:
             self._stopping = True
             if self._server is not None:
                 self._server.should_exit = True
-            await asyncio.gather(server_task, return_exceptions=True)
+            await asyncio.gather(server_task, sweeper_task, return_exceptions=True)
             await self._close()
 
     async def stop(self) -> None:
@@ -231,6 +232,10 @@ class Application:
             self.cfg.imap.host,
         )
         await self._verify_all()
+        # Catch up on any scrobbles whose showtime passed while we were down
+        # before we start ingesting new email. Doing this eagerly means the
+        # first IMAP tick doesn't have to race the sweeper.
+        await self._flush_pending_scrobbles()
         async for msg in self.monitor.stream():
             if self._stopping:
                 break
@@ -238,6 +243,55 @@ class Application:
                 await self._handle_message(msg)
             except Exception:  # pragma: no cover - defensive
                 log.exception("Failed to handle message %s", msg.fingerprint)
+
+    async def _flush_pending_scrobbles_forever(self) -> None:
+        """Periodically dispatch scrobbles whose showtime has passed.
+
+        Setting ``pending_scrobble_check_interval_seconds`` to 0 disables the
+        loop (the on-boot flush still runs, and any new email will still
+        redrive its own record inline)."""
+        interval = self.cfg.pending_scrobble_check_interval_seconds
+        if interval <= 0:
+            log.info("Pending-scrobble sweeper disabled (interval=0)")
+            return
+        while not self._stopping:
+            try:
+                await asyncio.sleep(interval)
+            except asyncio.CancelledError:  # pragma: no cover
+                break
+            if self._stopping:
+                break
+            if not self._ready:
+                # Startup verification still running; skip this tick.
+                continue
+            try:
+                await self._flush_pending_scrobbles()
+            except Exception:  # pragma: no cover - defensive
+                log.exception("Pending-scrobble sweep failed")
+
+    async def _flush_pending_scrobbles(self) -> None:
+        """Scan every order and dispatch any whose showtime has passed."""
+        if self.tracker is None:
+            return
+        due: list[OrderRecord] = []
+        for record in self.state.state.orders.values():
+            if record.scrobbled:
+                continue
+            watched_at = _parse_iso(record.watched_at) if record.watched_at else None
+            if watched_at is None or not _showtime_has_passed(watched_at):
+                continue
+            due.append(record)
+        if not due:
+            return
+        log.info("Flushing %d pending scrobble(s)", len(due))
+        changed = False
+        for record in due:
+            before = record.scrobbled
+            await self._dispatch_scrobble(record)
+            if record.scrobbled != before or record.tracker_ids:
+                changed = True
+        if changed:
+            await self.state.save()
 
     async def _handle_message(self, msg: InboundEmail) -> None:
         if self.state.already_processed(msg.fingerprint):
@@ -291,48 +345,123 @@ class Application:
                     title=parsed.title,
                     watched_at=parsed.showtime.isoformat(),
                     theater_name=parsed.theater_name,
+                    scrobbled=False,
                 )
             )
             return
 
         watched_at = parsed.showtime
-        tracker_ids: dict[str, str] = {}
-        if self.tracker is not None:
-            # Yamtrack and Ryot both use the movie's runtime to compute an
-            # end/finished-on timestamp. Trakt does not care about duration.
-            # Only pay for the extra TMDB call when the tracker will actually
-            # use it.
-            scrobble_kwargs: dict[str, object] = {}
-            if self.cfg.tracker.provider in ("yamtrack", "ryot"):
-                runtime = await self.tmdb.get_runtime(movie.tmdb_id)
-                if runtime is not None:
-                    scrobble_kwargs["runtime_minutes"] = runtime
-            result = await self.tracker.scrobble(
-                movie.tmdb_id, watched_at, movie.title, **scrobble_kwargs
-            )
-            # Yamtrack's scrobble() returns the newly-created instance_id
-            # (or None on failure). Everything else returns a bool.
-            if self.cfg.tracker.provider == "yamtrack" and isinstance(result, int):
-                tracker_ids["yamtrack"] = str(result)
 
+        # Requests always go out immediately — the whole point of a request
+        # is to give the ARRs time to grab the movie before the user gets
+        # home, so it makes no sense to defer them to the showtime like the
+        # scrobble.
         if self.requester is not None:
             await self.requester.request_movie(movie.tmdb_id, movie.title)
 
-        self.state.record_order(
-            OrderRecord(
-                order_number=parsed.order_number,
-                tmdb_id=movie.tmdb_id,
-                title=movie.title,
-                watched_at=watched_at.isoformat(),
-                theater_name=parsed.theater_name,
-                tracker_ids=tracker_ids,
-            )
+        # Base record. If the showtime is already in the past (uncommon but
+        # possible for older emails picked up on a fresh install) we scrobble
+        # inline. Otherwise we persist ``scrobbled=False`` and let the
+        # sweeper pick it up when the showtime has actually passed — Trakt
+        # rejects future ``watched_at`` values, and marking future shows as
+        # watched is semantically wrong on the other trackers too.
+        record = OrderRecord(
+            order_number=parsed.order_number,
+            tmdb_id=movie.tmdb_id,
+            title=movie.title,
+            watched_at=watched_at.isoformat(),
+            theater_name=parsed.theater_name,
+            scrobbled=False,
         )
+        if _showtime_has_passed(watched_at):
+            await self._dispatch_scrobble(record)
+        else:
+            log.info(
+                "Deferring scrobble for %s until showtime %s has passed",
+                movie.title,
+                watched_at.isoformat(),
+            )
+        self.state.record_order(record)
+
+    async def _dispatch_scrobble(self, record: OrderRecord) -> None:
+        """Call ``tracker.scrobble`` and mutate ``record`` in place with the
+        results (``scrobbled=True`` and, for Yamtrack, the new instance_id).
+        Shared by the inline (past-showtime) and the sweeper (deferred) paths
+        so the runtime lookup + instance_id capture live in exactly one
+        place."""
+        if self.tracker is None or record.tmdb_id is None:
+            record.scrobbled = True  # nothing to do; don't keep re-checking
+            return
+        watched_at = _parse_iso(record.watched_at) if record.watched_at else None
+        if watched_at is None:
+            log.warning(
+                "Cannot scrobble order %s: watched_at is missing/invalid",
+                record.order_number,
+            )
+            record.scrobbled = True
+            return
+
+        # Yamtrack and Ryot both use the movie's runtime to compute an
+        # end/finished-on timestamp. Trakt does not care about duration.
+        # Only pay for the extra TMDB call when the tracker will actually
+        # use it.
+        scrobble_kwargs: dict[str, object] = {}
+        if self.cfg.tracker.provider in ("yamtrack", "ryot"):
+            runtime = await self.tmdb.get_runtime(record.tmdb_id)
+            if runtime is not None:
+                scrobble_kwargs["runtime_minutes"] = runtime
+
+        title = record.title or f"tmdb:{record.tmdb_id}"
+        try:
+            result = await self.tracker.scrobble(
+                record.tmdb_id, watched_at, title, **scrobble_kwargs
+            )
+        except Exception:
+            log.exception(
+                "Scrobble failed for order %s (%s); will retry on next sweep",
+                record.order_number,
+                title,
+            )
+            return
+
+        # Yamtrack's scrobble() returns the newly-created instance_id
+        # (or None on failure). Everything else returns a bool.
+        if self.cfg.tracker.provider == "yamtrack":
+            if isinstance(result, int):
+                record.tracker_ids["yamtrack"] = str(result)
+                record.scrobbled = True
+            else:
+                log.warning(
+                    "Yamtrack scrobble for order %s did not return an "
+                    "instance_id; will retry on next sweep",
+                    record.order_number,
+                )
+        else:
+            if result:
+                record.scrobbled = True
+            else:
+                log.warning(
+                    "Scrobble for order %s (%s) returned False; will retry "
+                    "on next sweep",
+                    record.order_number,
+                    title,
+                )
 
     async def _handle_cancellation(self, parsed: ParsedEmail) -> None:
         assert parsed.order_number
         log.info("Cancellation for order %s", parsed.order_number)
         record = self.state.pop_order(parsed.order_number)
+
+        # If the scrobble never actually went out (future-showtime deferral)
+        # popping the record is enough — nothing exists on the tracker to
+        # remove, and we already skipped every third-party call for it.
+        if record is not None and not record.scrobbled:
+            log.info(
+                "Cancellation %s: reservation was still pending; dropped "
+                "before scrobbling",
+                parsed.order_number,
+            )
+            return
 
         tmdb_id: Optional[int] = record.tmdb_id if record else None
         title = (record.title if record else parsed.title) or parsed.title
@@ -374,3 +503,13 @@ def _parse_iso(value: str) -> Optional[datetime]:
         return datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError:
         return None
+
+
+def _showtime_has_passed(when: datetime) -> bool:
+    """True when ``when`` is now or in the past.
+
+    Naive datetimes are treated as UTC, matching what our parsers produce.
+    """
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=timezone.utc)
+    return when <= datetime.now(timezone.utc)

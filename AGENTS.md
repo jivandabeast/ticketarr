@@ -89,15 +89,34 @@ IMAP poll → InboundEmail → parse_email(subject, html, text) → ParsedEmail
                                              ▼                   ▼
                             TMDB.search_movie(title, year)   state.pop_order(order#)
                                              │                   │
-                     tracker.scrobble(tmdb_id, showtime)     tracker.unscrobble(tmdb_id, …)
-                     requester.request_movie(tmdb_id)             │
-                                             │                   │
-                     state.record_order(order#, tmdb_id, …)    (persist)
+                     requester.request_movie(tmdb_id)         if record.scrobbled:
+                                             │                     tracker.unscrobble(tmdb_id, …)
+                     state.record_order(order#, tmdb_id,           else: drop, no external call
+                                        scrobbled=False)
+                                             │
+                     if showtime <= now: tracker.scrobble()
+                     else: defer to _flush_pending_scrobbles_forever()
 ```
 
 `state.json` is the source of truth for "which order maps to which TMDB id".
 Do not remove the persistence step or cancellations for orders received after
 a restart will lose their link to the original scrobble.
+
+### Deferred scrobbles
+
+Trakt rejects any ``watched_at`` in the future, and marking a movie as
+"watched" before its showtime is semantically wrong on Ryot and Yamtrack
+too. So reservations for future shows are persisted with
+``OrderRecord.scrobbled = False`` (and no ``tracker_ids``). The
+``Application._flush_pending_scrobbles_forever`` sweeper wakes every
+``pending_scrobble_check_interval_seconds`` (default 300s) and dispatches
+any records whose showtime has passed. The same flush runs eagerly on
+startup so downtime doesn't stall the pending queue. Requests
+(`Seerr`/`Ombi`) are **not** deferred — the ARRs need the head start.
+
+If a cancellation email arrives before the sweeper fires, the record is
+just popped from state and no unscrobble call is made (there's nothing on
+the tracker to remove).
 
 ## External API references (verified during initial implementation)
 
